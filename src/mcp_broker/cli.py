@@ -20,7 +20,7 @@ from mcp_broker.config_layers import main as config_layers_main
 from mcp_broker.config_render import main as config_render_main
 from mcp_broker.daemon import BrokerDaemon, BrokerDaemonError, main as daemon_main
 from mcp_broker.deployments import main as deployments_main
-from mcp_broker.fleet_status import main as fleet_status_main
+from mcp_broker.cli_fleet_status import add_fleet_status_parser
 from mcp_broker.cli_governance import add_governance_parser
 from mcp_broker.rollout_simulator import main as rollout_simulator_main
 from mcp_broker.runtime_artifact import RuntimeArtifactError, RuntimeArtifactVerifier
@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_deployment_parser(subparsers)
     _add_break_glass_parser(subparsers)
     add_governance_parser(subparsers)
-    _add_fleet_status_parser(subparsers)
+    add_fleet_status_parser(subparsers)
     _add_rollout_parser(subparsers)
     _add_runtime_parser(subparsers)
     _add_service_parser(subparsers)
@@ -198,25 +198,6 @@ def _add_break_glass_parser(
     )
     status_parser.add_argument("--state-dir", required=True, type=Path)
     status_parser.set_defaults(handler=handle_break_glass)
-
-
-def _add_fleet_status_parser(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    fleet_parser = subparsers.add_parser(
-        "fleet-status",
-        help="Export central-safe broker fleet status",
-    )
-    fleet_subparsers = fleet_parser.add_subparsers(
-        dest="fleet_status_command",
-        required=True,
-    )
-    export_parser = fleet_subparsers.add_parser(
-        "export",
-        help="Export a redacted fleet status payload from broker-status.json",
-    )
-    export_parser.add_argument("--status-file", required=True, type=Path)
-    export_parser.set_defaults(handler=handle_fleet_status)
 
 
 def _add_rollout_parser(
@@ -594,10 +575,6 @@ def handle_break_glass(args: argparse.Namespace) -> int:
         for policy_path in args.bypass_policy:
             argv.extend(["--bypass-policy", policy_path])
     return break_glass_main(argv)
-
-
-def handle_fleet_status(args: argparse.Namespace) -> int:
-    return fleet_status_main(["--status-file", str(args.status_file.expanduser())])
 
 
 def handle_rollout_simulator(args: argparse.Namespace) -> int:

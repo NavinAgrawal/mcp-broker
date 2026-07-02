@@ -63,7 +63,7 @@ status collection, rollout control, approvals, and a reference control plane.
       rollout rings.
 - [x] Add broker pull/apply protocol for authenticated fetch, cache,
       compatibility check, local approval, apply, and rollback.
-- [ ] Add fleet-status collection with auth, retention, failure handling, and
+- [x] Add fleet-status collection with auth, retention, failure handling, and
       no-secret validation.
 - [ ] Add a rollout controller that turns simulator decisions into auditable
       actions.

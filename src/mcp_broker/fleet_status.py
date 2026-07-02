@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -10,6 +11,7 @@ import sys
 from typing import Any, Sequence
 
 from mcp_broker.daemon_helpers import looks_like_filesystem_path
+from mcp_broker.fleet_collection import FleetCollectionError, prepare_collection_envelope
 
 
 _REDACTED = "[redacted]"
@@ -55,14 +57,36 @@ def export_fleet_status(snapshot: dict[str, Any]) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     snapshot = json.loads(args.status_file.expanduser().read_text(encoding="utf-8"))
-    sys.stdout.write(json.dumps(export_fleet_status(snapshot), sort_keys=True) + "\n")
+    payload = export_fleet_status(snapshot)
+    if args.target_url:
+        try:
+            payload = prepare_collection_envelope(
+                payload,
+                target_url=args.target_url,
+                auth_ref=args.auth_ref,
+                retention_days=args.retention_days,
+                generated_at=args.generated_at or _current_timestamp(),
+                collector_id=args.collector_id,
+            )
+        except FleetCollectionError as exc:
+            raise SystemExit(str(exc)) from exc
+    sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
     return 0
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Export a redacted fleet-status payload")
     parser.add_argument("--status-file", required=True, type=Path)
+    parser.add_argument("--target-url")
+    parser.add_argument("--auth-ref")
+    parser.add_argument("--retention-days", type=int)
+    parser.add_argument("--generated-at")
+    parser.add_argument("--collector-id")
     return parser
+
+
+def _current_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _redacted_upstream(status: dict[str, Any]) -> dict[str, Any]:

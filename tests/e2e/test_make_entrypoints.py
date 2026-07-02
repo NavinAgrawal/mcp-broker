@@ -80,6 +80,7 @@ def test_make_help_exposes_broker_entrypoints() -> None:
         "governance-pull",
         "governance-apply",
         "governance-rollback",
+        "fleet-status-collect",
         "plugin-install",
         "plugin-status",
         "plugin-render",

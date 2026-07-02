@@ -206,7 +206,7 @@ The Make targets are `governance-pull`, `governance-apply`, and
 `governance-rollback`. Hosted fetching and central approval workflow are still
 future Phase 2 work; the current protocol proves the local broker behavior.
 
-## Fleet Status Export
+## Fleet Status Export And Collection
 
 Fleet status is a redacted export derived from the local
 `state/broker-status.json` snapshot:
@@ -226,8 +226,33 @@ The export includes:
 
 The export must not include local filesystem paths, socket paths, process IDs,
 environment maps, account names, URLs, token values, credential values, OAuth
-state, or private upstream configuration. It is a local JSON payload only. The
-broker does not upload it and does not open an inbound status endpoint.
+state, or private upstream configuration.
+
+Collection wraps that redacted status in a local-only envelope:
+
+```bash
+mcp-broker fleet-status collect \
+  --status-file ~/mcp/mcp-broker/state/broker-status.json \
+  --target-url https://collector.example.invalid/mcp-broker/fleet-status \
+  --auth-ref env:MCP_BROKER_FLEET_COLLECTOR_TOKEN \
+  --retention-days 30 \
+  --collector-id local-fleet-collector
+```
+
+The Make target is `fleet-status-collect` and reads these variables:
+`FLEET_STATUS_FILE`, `FLEET_STATUS_TARGET`, `FLEET_STATUS_AUTH_REF`,
+`FLEET_STATUS_RETENTION_DAYS`, and `FLEET_STATUS_COLLECTOR_ID`.
+
+Collection is still prepare-only. It validates the upload target, auth
+reference, retention period, retry policy, failure handling, and redacted
+payload, then prints JSON to stdout. It does not upload to a remote service.
+Upstream names are anonymized as `upstream-001`, `upstream-002`, and so on
+before collection so private MCP inventory does not leave the local broker.
+Targets with embedded credentials or secret-bearing query parameters are
+rejected. Raw status payloads with local paths, socket paths, process IDs,
+account names, URLs, token values, or credential values are rejected.
+
+The broker does not open an inbound status endpoint.
 
 ## Enterprise Adoption Path
 

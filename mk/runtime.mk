@@ -1,4 +1,4 @@
-.PHONY: runtime-layout doctor broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollback break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
+.PHONY: runtime-layout doctor broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollback fleet-status-collect break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
 
 runtime-layout: ## Create configured runtime directories
 	$(call log_step,"Runtime layout")
@@ -159,6 +159,17 @@ governance-apply: runtime-layout ## Apply a cached governance bundle after local
 governance-rollback: runtime-layout ## Roll back active governance deployment state
 	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m mcp_broker.cli governance rollback --state-dir "$(STATE_DIR)"
 	$(call log_success,"Governance rollback completed")
+
+fleet-status-collect: runtime-layout ## Prepare a redacted fleet-status collection envelope without uploading
+	@test -n "$(FLEET_STATUS_TARGET)" || { $(call log_error,"Set FLEET_STATUS_TARGET"); exit 2; }
+	@test -n "$(FLEET_STATUS_AUTH_REF)" || { $(call log_error,"Set FLEET_STATUS_AUTH_REF"); exit 2; }
+	@test -f "$(FLEET_STATUS_FILE)" || { $(call log_error,"Missing FLEET_STATUS_FILE=$(FLEET_STATUS_FILE)"); exit 1; }
+	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m mcp_broker.cli fleet-status collect \
+		--status-file "$(FLEET_STATUS_FILE)" \
+		--target-url "$(FLEET_STATUS_TARGET)" \
+		--auth-ref "$(FLEET_STATUS_AUTH_REF)" \
+		--retention-days "$(FLEET_STATUS_RETENTION_DAYS)" \
+		--collector-id "$(FLEET_STATUS_COLLECTOR_ID)"
 
 break-glass-create: runtime-layout ## Create an expiring break-glass audit record
 	@test -n "$(BREAK_GLASS_REASON)" || { $(call log_error,"Set BREAK_GLASS_REASON"); exit 2; }
