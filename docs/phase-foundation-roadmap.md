@@ -15,6 +15,16 @@ individual users, small teams, and larger enterprises. Shared runtime work is in
 scope for Phase 3, but local execution remains the default until the isolation,
 quota, audit, rollback, and E2E gates pass.
 
+## Release Reliability Blocker
+
+Before the next public release, harden the Publish Everywhere transaction.
+Current state verified on 2026-07-02: GitHub latest release is `v1.4.1`, while
+npm reports `${NPM_PACKAGE_NAME}@${PACKAGE_VERSION}` as `latest`. The 2026-06-27
+`${PACKAGE_VERSION}` fanout partly published registry surfaces, then failed
+before GitHub release creation. The required fix is a transaction-safe release
+path with per-registry preflight, idempotent reruns, live verification, and
+GitHub release recovery.
+
 ## Phase 1: Plugin And Local Deployment Foundation
 
 - [x] Add a config-backed broker identity/status contract with `broker_id`,

@@ -121,6 +121,7 @@ COV_FILE          ?= $(COV_DIR)/.coverage
 TEST_LOG_DIR      ?= $(ROOT)/var/test-logs
 QUALITY_DIR       ?= $(ROOT)/var/quality
 RELEASE_GATE_LOG_DIR ?= $(QUALITY_DIR)/release-gate
+RELEASE_TRANSACTION_LEDGER ?= $(QUALITY_DIR)/release/publish-everywhere-ledger.json
 GENERATED_SCAN_EXCLUDE_PATHS ?= \
 	$(ROOT)/.mutmut-cache \
 	$(ROOT)/mutants \

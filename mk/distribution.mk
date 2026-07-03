@@ -1,4 +1,4 @@
-.PHONY: release-smoke package-build package-check package-install-smoke public-stable-surface-smoke public-release-surface-smoke public-release-live-verify npm-account-check npm-package-check npm-smoke npm-release-smoke docker-build docker-smoke docker-buildx docker-mcp-catalog-smoke docker-hub-public-ensure docker-publish-check docker-release-smoke mcpb-validate mcpb-pack mcpb-smoke mcpb-stdio-smoke smithery-payload-check smithery-publish directory-submission-check release-version-resolve release-version-sync release-version-check release-check _release-check-impl release _release-impl publish-version-check publish-everywhere-check _publish-everywhere-check-impl publish-everywhere _publish-everywhere-impl _publish-everywhere-preflight _publish-check-docker-smoke _publish-check-docker-buildx _publish-everywhere-required-env-check _publish-everywhere-docker-hub-public _publish-everywhere-live-verify-registries _publish-everywhere-github-release _publish-everywhere-live-verify-github-release _publish-everywhere-pypi _publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew
+.PHONY: release-smoke package-build package-check package-install-smoke public-stable-surface-smoke public-release-surface-smoke public-release-live-verify npm-account-check npm-package-check npm-smoke npm-release-smoke docker-build docker-smoke docker-buildx docker-mcp-catalog-smoke docker-hub-public-ensure docker-publish-check docker-release-smoke mcpb-validate mcpb-pack mcpb-smoke mcpb-stdio-smoke smithery-payload-check smithery-publish directory-submission-check release-version-resolve release-version-sync release-version-check release-check _release-check-impl release _release-impl publish-version-check publish-everywhere-check _publish-everywhere-check-impl publish-everywhere _publish-everywhere-impl _publish-everywhere-preflight _publish-check-docker-smoke _publish-check-docker-buildx _publish-everywhere-required-env-check _publish-everywhere-auth-preflight _publish-everywhere-docker-hub-public _publish-everywhere-registry-fanout _publish-everywhere-live-verify-registries _publish-everywhere-github-release _publish-everywhere-live-verify-github-release _publish-everywhere-pypi _publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew
 
 release-smoke: ## Run clean-tree public setup smoke from tracked files
 	@"$(ROOT)/scripts/release-smoke.sh"
@@ -319,9 +319,10 @@ _publish-everywhere-impl:
 	@test "$(PUBLISH_EVERYWHERE_APPLY)" = "1" || { printf "\033[1;31m[ERROR]\033[0m Set PUBLISH_EVERYWHERE_APPLY=1 to publish\n" >&2; exit 2; }
 	$(call timed_make,"publish-everywhere: preflight checks",_publish-everywhere-preflight)
 	$(call timed_make,"publish-everywhere: required env",_publish-everywhere-required-env-check)
+	$(call timed_make,"publish-everywhere: auth preflight",_publish-everywhere-auth-preflight)
 	$(call timed_make,"publish-everywhere: docker hub public repository",_publish-everywhere-docker-hub-public)
 	$(call timed_make,"publish-everywhere: pypi",_publish-everywhere-pypi)
-	$(call timed_make,"publish-everywhere: parallel registries",-j $(PUBLISH_EVERYWHERE_JOBS) _publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew)
+	$(call timed_make,"publish-everywhere: registry fanout",_publish-everywhere-registry-fanout)
 	$(call timed_make,"publish-everywhere: live registry verification",_publish-everywhere-live-verify-registries)
 	$(call timed_make,"publish-everywhere: github release",_publish-everywhere-github-release)
 	$(call timed_make,"publish-everywhere: github release verification",_publish-everywhere-live-verify-github-release)
@@ -338,10 +339,48 @@ _publish-everywhere-required-env-check:
 	@test -n "$${HOMEBREW_TAP_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m HOMEBREW_TAP_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
 	@test -n "$${DOCKERHUB_USERNAME:-}" || { printf "\033[1;31m[ERROR]\033[0m DOCKERHUB_USERNAME is required before publish-everywhere starts\n" >&2; exit 2; }
 	@test -n "$${DOCKERHUB_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m DOCKERHUB_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
+	@test -n "$${NODE_AUTH_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m NODE_AUTH_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
+	@test -n "$${GH_TOKEN:-$${GITHUB_TOKEN:-}}" || { printf "\033[1;31m[ERROR]\033[0m GH_TOKEN or GITHUB_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
 	$(call log_success,"Publish-everywhere required environment is present")
+
+_publish-everywhere-auth-preflight:
+	@command -v gh >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m gh is required before publish-everywhere starts\n" >&2; exit 2; }
+	@command -v mcp-publisher >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m mcp-publisher is required before publish-everywhere starts\n" >&2; exit 2; }
+	@cd "$(NPM_DIR)" && $(NPM) whoami --registry "$(NPM_REGISTRY_URL)" >/dev/null
+	@gh auth status --hostname github.com >/dev/null 2>&1
+	@visibility="$$(gh api "orgs/$(PUBLIC_NAMESPACE)/packages/container/$(DOCKER_IMAGE_NAME)" --jq '.visibility')" || { printf "\033[1;31m[ERROR]\033[0m GHCR package visibility check failed; token needs package read access\n" >&2; exit 2; }; \
+		if [[ "$$visibility" != "public" ]]; then \
+			printf "\033[1;31m[ERROR]\033[0m GHCR package is not public: %s/%s visibility=%s\n" "$(PUBLIC_NAMESPACE)" "$(DOCKER_IMAGE_NAME)" "$$visibility" >&2; \
+			exit 2; \
+		fi
+	@tmpdir="$$(mktemp -d)"; \
+		trap 'rm -rf "$$tmpdir"' EXIT; \
+		printf '%s\n' \
+			'#!/usr/bin/env bash' \
+			'case "$$1" in' \
+			'  *Username*) printf "%s\n" x-access-token ;;' \
+			'  *Password*) printf "%s\n" "$${HOMEBREW_TAP_TOKEN}" ;;' \
+			'esac' > "$$tmpdir/git-askpass.sh"; \
+		chmod 0700 "$$tmpdir/git-askpass.sh"; \
+		GIT_ASKPASS="$$tmpdir/git-askpass.sh" GIT_TERMINAL_PROMPT=0 git ls-remote "$(HOMEBREW_TAP_CLONE_URL)" HEAD >/dev/null
+	@tmpdir="$$(mktemp -d)"; \
+		trap 'rm -rf "$$tmpdir"' EXIT; \
+		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
+		(cd "$$tmpdir" && mcp-publisher login github-oidc >/dev/null)
+	$(call log_success,"Publish-everywhere auth preflight passed")
 
 _publish-everywhere-docker-hub-public:
 	$(call timed_make,"publish-everywhere: docker hub public ensure",docker-hub-public-ensure)
+
+_publish-everywhere-registry-fanout:
+	@$(PYTHON_BIN) "$(ROOT)/scripts/release_fanout.py" \
+		--ledger "$(RELEASE_TRANSACTION_LEDGER)" \
+		--jobs "$(PUBLISH_EVERYWHERE_JOBS)" \
+		--step "npm::$(MAKE) --no-print-directory _publish-everywhere-npm" \
+		--step "docker::$(MAKE) --no-print-directory _publish-everywhere-docker" \
+		--step "mcp-registry::$(MAKE) --no-print-directory _publish-everywhere-mcp-registry" \
+		--step "homebrew::$(MAKE) --no-print-directory _publish-everywhere-homebrew"
+	$(call log_success,"Publish-everywhere registry fanout recorded: $(RELEASE_TRANSACTION_LEDGER)")
 
 _publish-everywhere-live-verify-registries:
 	@$(PYTHON_BIN) "$(ROOT)/scripts/verify_public_release.py" \
