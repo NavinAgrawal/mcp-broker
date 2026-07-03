@@ -15,9 +15,13 @@ Current public package status:
 - MCP Registry: `${MCP_REGISTRY_NAME} ${PACKAGE_VERSION}` is published and marked latest by the release transaction.
 - Homebrew: `${HOMEBREW_FORMULA_REF} ${PACKAGE_VERSION}` is published through the public tap.
 - NPM: `${NPM_PACKAGE_NAME} ${PACKAGE_VERSION}` is published by the release transaction.
-- Docker: `${DOCKER_REPOSITORY_IMAGE}:${PACKAGE_VERSION}` and
-  `${GHCR_REPOSITORY_IMAGE}:${PACKAGE_VERSION}` are published by the release transaction.
-- Current source release: `${PACKAGE_VERSION}`.
+- Docker: `${DOCKER_REPOSITORY_IMAGE}:${PACKAGE_VERSION}` is published by the
+  release transaction. `${GHCR_REPOSITORY_IMAGE}:${PACKAGE_VERSION}` is a
+  claimed mirror surface, but the 2026-07-02 live audit failed anonymous GHCR
+  manifest verification.
+- Current source release: GitHub latest release remains behind
+  `${PACKAGE_VERSION}` until the release recovery step creates and verifies
+  `v${PACKAGE_VERSION}`.
 
 The package command surface is:
 
@@ -100,21 +104,34 @@ It refuses to run without an explicit version unless GitHub Actions supplied a
 preflight, and checks directory, MCPB, and Smithery metadata before a release
 tag or GitHub release is created.
 
-The release transaction validates the Docker Hub repository visibility before
-the first registry write, publishes PyPI, then fans out NPM, Docker Hub, GHCR,
-MCP Registry metadata, and the Homebrew tap formula in one CI run. Public live
-verification runs after that fan-out. The GitHub Release is created only after
-registry verification passes, then the release object is verified through the
-GitHub API. Tag pushes do not publish. There are no per-registry publish
-workflows. Recovery runs the same `publish-everywhere` workflow with the same
-Makefile orchestrator.
+The release transaction validates required credentials, GHCR package visibility,
+and Docker Hub repository visibility before the first registry write, publishes
+PyPI, then fans out NPM, Docker Hub, GHCR, MCP Registry metadata, and the
+Homebrew tap formula in one CI run. The fan-out writes a JSON ledger to
+`var/quality/release/publish-everywhere-ledger.json` with each registry child
+command, exit code, and status. A registry child command failure is not treated
+as the final release truth by itself, because some registries can accept a write
+and still return a non-zero command status. Public live verification runs after
+the fan-out and decides whether the release can continue.
+
+The GitHub Release is created only after registry verification passes, then the
+release object is verified through the GitHub API. If the fan-out partly
+published a version and stopped before GitHub release creation, rerun the same
+`publish-everywhere` workflow for the same version. Already-published registry
+surfaces are checked and skipped, live verification proves the public state, and
+the GitHub release step recovers the missing `v<version>` release when all
+registry surfaces agree. Tag pushes do not publish. There are no per-registry
+publish workflows.
 
 The Makefile validates required publication environment before the first
-registry write. For the current surface set, `HOMEBREW_TAP_TOKEN` must exist in
-GitHub Actions before PyPI publication starts. `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN` must also exist so `make docker-hub-public-ensure` can create
-or update the Docker Hub repository as public before the image push and before
-PyPI can be written.
+registry write. For the current surface set, `HOMEBREW_TAP_TOKEN`,
+`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `NODE_AUTH_TOKEN`, and `GH_TOKEN` or
+`GITHUB_TOKEN` must exist in GitHub Actions before PyPI publication starts.
+The GitHub token must also be able to read GitHub Packages metadata so the
+workflow can fail closed if the GHCR package is not public. `DOCKERHUB_USERNAME`
+and `DOCKERHUB_TOKEN` are also used by `make docker-hub-public-ensure` so the
+Docker Hub repository is public before the image push and before PyPI can be
+written.
 
 The orchestrator is retry-aware for partially completed releases. It checks the
 PyPI package version, NPM package version, MCP Registry metadata, and Homebrew
@@ -265,11 +282,16 @@ then verifies anonymous repository visibility. If Docker Hub refuses the
 visibility update, the release blocks before PyPI publication instead of
 creating a partially public release.
 
-GHCR is a mirror:
+GHCR is a mirror only when it is anonymously readable:
 
 ```text
 ${GHCR_REPOSITORY_IMAGE}
 ```
+
+If organization policy keeps GHCR packages private, do not claim GHCR as a
+public release surface. The publish workflow must either verify the package is
+public before the first write or remove GHCR from the public surface contract in
+the same change.
 
 Recommended release tags for `${PACKAGE_VERSION}`:
 

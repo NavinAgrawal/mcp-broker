@@ -463,7 +463,9 @@ def test_npm_and_docker_distribution_decisions_are_recorded() -> None:
     assert "does not reimplement the Python broker in Node" in npm_doc
     assert "NPM trusted publishing is the preferred auth path" in npm_doc
     assert "NPM is an optional bridge package" in distribution
-    assert "Current source release: `${PACKAGE_VERSION}`" in distribution
+    assert "Current source release: GitHub latest release remains behind" in distribution
+    assert "until the release recovery step creates and verifies" in distribution
+    assert "`v${PACKAGE_VERSION}`" in distribution
     assert "${DOCKER_REPOSITORY_IMAGE}" in distribution
     assert "${GHCR_REPOSITORY_IMAGE}" in distribution
     assert "Docker Hub is the primary image for Docker MCP Catalog work" in distribution
@@ -624,7 +626,7 @@ def test_publish_everywhere_orchestration_is_sequenced_and_parallel() -> None:
         maxsplit=1,
     )[0]
     pypi_index = publish_section.index("_publish-everywhere-pypi")
-    fanout_index = publish_section.index("_publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry")
+    fanout_index = publish_section.index("_publish-everywhere-registry-fanout")
     registry_verify_index = publish_section.index("_publish-everywhere-live-verify-registries")
     github_release_index = publish_section.index("_publish-everywhere-github-release")
     github_verify_index = publish_section.index("_publish-everywhere-live-verify-github-release")
@@ -709,7 +711,7 @@ def test_publish_everywhere_orchestration_is_sequenced_and_parallel() -> None:
     assert "DOCKERHUB_USERNAME is required before publish-everywhere starts" in makefile
     assert "DOCKERHUB_TOKEN is required before publish-everywhere starts" in makefile
     assert '$(call timed_make,"publish-everywhere: pypi",_publish-everywhere-pypi)' in publish_section
-    assert '$(call timed_make,"publish-everywhere: parallel registries",-j $(PUBLISH_EVERYWHERE_JOBS) _publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew)' in publish_section
+    assert '$(call timed_make,"publish-everywhere: registry fanout",_publish-everywhere-registry-fanout)' in publish_section
     assert '$(call timed_make,"publish-everywhere: live registry verification",_publish-everywhere-live-verify-registries)' in publish_section
     assert '$(call timed_make,"publish-everywhere: github release",_publish-everywhere-github-release)' in publish_section
     assert '$(call timed_make,"publish-everywhere: github release verification",_publish-everywhere-live-verify-github-release)' in publish_section
@@ -803,6 +805,67 @@ def test_public_release_live_verification_proves_registry_truth_before_github_la
     assert "DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}" in workflow
     assert "public live verification" in distribution
     assert "GitHub Release is created only after registry verification passes" in normalized_distribution
+
+
+def test_publish_everywhere_records_registry_failures_then_runs_live_verification() -> None:
+    makefile = read_combined_makefiles(ROOT)
+    make_vars = read_make_variable_defaults(ROOT)
+
+    publish_section = makefile.split("_publish-everywhere-impl:", maxsplit=1)[1].split(
+        "_publish-everywhere-preflight:",
+        maxsplit=1,
+    )[0]
+    fanout_section = makefile.split(
+        "_publish-everywhere-registry-fanout:",
+        maxsplit=1,
+    )[1].split("_publish-everywhere-preflight:", maxsplit=1)[0]
+
+    assert "RELEASE_TRANSACTION_LEDGER" in make_vars
+    assert "scripts/release_fanout.py" in makefile
+    assert "_publish-everywhere-registry-fanout" in publish_section
+    assert "-j $(PUBLISH_EVERYWHERE_JOBS) _publish-everywhere-npm" not in publish_section
+    assert "release_fanout.py" in fanout_section
+    assert "--ledger \"$(RELEASE_TRANSACTION_LEDGER)\"" in fanout_section
+    assert '--step "npm::$(MAKE) --no-print-directory _publish-everywhere-npm"' in fanout_section
+    assert '--step "docker::$(MAKE) --no-print-directory _publish-everywhere-docker"' in fanout_section
+    assert (
+        '--step "mcp-registry::$(MAKE) --no-print-directory _publish-everywhere-mcp-registry"'
+        in fanout_section
+    )
+    assert (
+        '--step "homebrew::$(MAKE) --no-print-directory _publish-everywhere-homebrew"'
+        in fanout_section
+    )
+    assert publish_section.index("_publish-everywhere-registry-fanout") < publish_section.index(
+        "_publish-everywhere-live-verify-registries"
+    )
+    assert publish_section.index("_publish-everywhere-live-verify-registries") < publish_section.index(
+        "_publish-everywhere-github-release"
+    )
+
+
+def test_publish_everywhere_auth_preflight_runs_before_first_registry_write() -> None:
+    makefile = read_combined_makefiles(ROOT)
+    publish_section = makefile.split("_publish-everywhere-impl:", maxsplit=1)[1].split(
+        "_publish-everywhere-preflight:",
+        maxsplit=1,
+    )[0]
+    auth_section = makefile.split(
+        "_publish-everywhere-auth-preflight:",
+        maxsplit=1,
+    )[1].split("_publish-everywhere-docker-hub-public:", maxsplit=1)[0]
+
+    assert "_publish-everywhere-auth-preflight" in publish_section
+    assert publish_section.index("_publish-everywhere-auth-preflight") < publish_section.index(
+        "_publish-everywhere-pypi"
+    )
+    assert '$(NPM) whoami --registry "$(NPM_REGISTRY_URL)"' in auth_section
+    assert "gh auth status --hostname github.com" in auth_section
+    assert 'gh api "orgs/$(PUBLIC_NAMESPACE)/packages/container/$(DOCKER_IMAGE_NAME)"' in auth_section
+    assert "GHCR package is not public" in auth_section
+    assert "GIT_ASKPASS=\"$$tmpdir/git-askpass.sh\"" in auth_section
+    assert "git ls-remote \"$(HOMEBREW_TAP_CLONE_URL)\" HEAD" in auth_section
+    assert "mcp-publisher login github-oidc" in auth_section
 
 
 def test_public_release_coordinates_are_centralized_in_make_config() -> None:
