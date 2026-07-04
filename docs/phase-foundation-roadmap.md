@@ -106,7 +106,7 @@ quotas, worker isolation, distributed state, hybrid routing, and E2E proof.
 - [x] Add shared-runtime threat model and tenant model.
 - [x] Add remote broker API contract for authenticated discovery, describe,
       call, status, cancellation, streaming, and audit.
-- [ ] Add session affinity and state-placement rules.
+- [x] Add session affinity and state-placement rules.
 - [ ] Add quota and cost-control engine.
 - [ ] Add isolated shared worker runtime for allowlisted stateless upstreams.
 - [ ] Add distributed deployment state with locking, conflict handling,
