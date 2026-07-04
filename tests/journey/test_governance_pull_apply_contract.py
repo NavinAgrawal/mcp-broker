@@ -126,6 +126,43 @@ def test_make_governance_pull_apply_requires_explicit_inputs(tmp_path: Path) -> 
     assert (runtime_root / "state" / "deployments" / "active.json").is_file()
 
 
+def test_make_governance_rollout_control_records_action_ledger(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    simulation_path = _write_json(
+        tmp_path / "simulation.json",
+        {
+            "mode": "local_simulation_only",
+            "state": "ready",
+            "decisions": [
+                {"broker_id": "broker-a", "stage": "canary", "state": "canary"}
+            ],
+            "reasons": [],
+        },
+    )
+
+    result = subprocess.run(
+        make_command(
+            "governance-rollout-control",
+            f"GOVERNANCE_ROLLOUT_SIMULATION={simulation_path}",
+            "GOVERNANCE_ROLLOUT_OPERATOR=release-operator",
+            "GOVERNANCE_ROLLOUT_BUNDLE_ID=governance-bundle",
+            "GOVERNANCE_ROLLOUT_BUNDLE_VERSION=2026.07.04",
+            "GOVERNANCE_ROLLOUT_BUNDLE_CHANNEL=stable",
+            "GOVERNANCE_ROLLOUT_BUNDLE_DIGEST=sha256:abc123",
+            "GOVERNANCE_ROLLOUT_CREATED_AT=2026-07-04T05:50:00Z",
+            f"RUNTIME_ROOT={runtime_root}",
+        ),
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert "governance rollout actions recorded: 1" in result.stdout
+    assert (runtime_root / "state" / "governance-rollout" / "action-log.jsonl").is_file()
+
+
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "mcp_broker.cli", *args],

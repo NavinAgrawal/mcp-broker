@@ -206,6 +206,38 @@ The Make targets are `governance-pull`, `governance-apply`, and
 `governance-rollback`. Hosted fetching and central approval workflow are still
 future Phase 2 work; the current protocol proves the local broker behavior.
 
+## Rollout Controller
+
+The rollout controller turns `local_simulation_only` output into an
+append-only action ledger. It records canary, staged, broad, rollback, and hold actions
+under local runtime state while preserving `changed_runtime_state: false`.
+
+```bash
+mcp-broker governance rollout-control \
+  --simulation rollout-simulation.json \
+  --state-dir ~/mcp/mcp-broker/state \
+  --operator release-operator \
+  --bundle-id governance-bundle \
+  --bundle-version ${PACKAGE_VERSION} \
+  --bundle-channel stable \
+  --bundle-digest sha256:abc123
+```
+
+The controller writes individual action records under
+`governance-rollout/actions/` and appends every record to
+`governance-rollout/action-log.jsonl`. Each record includes the operator,
+bundle version and digest, source simulation state, broker id, stage, action,
+approval requirement, reasons, and the original simulator decision.
+
+`approval_required` and `compatibility_rejection` simulations become hold
+records. `rollback` simulations become rollback records for the affected
+brokers. `ready` simulations become canary, staged, or broad rollout records.
+The command rejects non-local simulation modes, does not fetch bundles, does
+not update deployment pointers, does not contact a hosted service, and does not
+call upstream tools.
+
+The Make target is `governance-rollout-control`.
+
 ## Fleet Status Export And Collection
 
 Fleet status is a redacted export derived from the local

@@ -79,7 +79,7 @@ status collection, rollout control, approvals, and a reference control plane.
       compatibility check, local approval, apply, and rollback.
 - [x] Add fleet-status collection with auth, retention, failure handling, and
       no-secret validation.
-- [ ] Add a rollout controller that turns simulator decisions into auditable
+- [x] Add a rollout controller that turns simulator decisions into auditable
       actions.
 - [ ] Add operator approval workflow for mutating rollout, rollback, policy
       override, and break-glass.
