@@ -132,11 +132,31 @@ The code contract lives in `mcp_broker.session_affinity`. It makes pure
 classification and state-placement decisions without routing traffic, starting
 workers, calling upstream tools, or changing runtime state.
 
+## Quota And Cost Controls
+
+The default quota decision is deny. Contract statement: external metering is not implemented.
+External metering is not implemented, and
+the current contract does not connect to billing, usage collection, or cost
+allocation systems.
+
+Every shared-runtime request must pass global, team, user, upstream, and tool
+scopes before it can be accepted. Contract statement: global, team, user, upstream, and tool scopes.
+Quota denial is fail-closed and audit-required. Contract statement: quota denial is fail-closed and audit-required.
+
+Kill switches are evaluated before limit counters. Contract statement: kill switches are evaluated before limit counters.
+The policy can deny by global kill switch, scoped kill switch, missing quota
+scope, or exhausted quota scope.
+
+The code contract lives in `mcp_broker.quota_policy`. It returns deterministic
+quota decisions from a supplied snapshot without billing calls, external
+metering calls, counter writes, routing traffic, starting workers, or changing
+runtime state.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote
 upstream startup, central OAuth storage, central browser state, or shared
-filesystem access. It does not make a future cloud service part of the default
+file-access state. It does not make a future cloud service part of the default
 install path.
 
 The public repo must keep working for a single user who clones it, creates a
