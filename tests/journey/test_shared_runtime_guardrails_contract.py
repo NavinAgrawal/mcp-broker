@@ -22,6 +22,7 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "## Threat Model",
         "## Tenant Model",
         "## Remote API Contract",
+        "## Session Affinity And State Placement",
         "## Mandatory Non-Goals",
     ]
     required_terms = [
@@ -44,6 +45,9 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "network_listener_supported: false",
         "authenticated tool discovery, describe, call, status, cancellation, streaming chunks, and audit events",
         "auth_context, tenant_context, and policy_decision",
+        "stateful, OAuth, browser, file-access, local-secret, and unknown upstream classes remain local edge",
+        "shared-worker state binds to tenant, workspace, user, and upstream scope",
+        "private inventory class labels are forbidden",
         "local edge broker remains the default",
         "no remote listener",
         "no shared upstream execution",

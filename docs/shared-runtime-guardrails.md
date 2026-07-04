@@ -115,6 +115,23 @@ The code contract lives in `mcp_broker.remote_api_contract`. It validates the
 remote request and event shapes without opening sockets, starting workers,
 calling upstream tools, or changing runtime state.
 
+## Session Affinity And State Placement
+
+Stateful, OAuth, browser, file-access, local-secret, and unknown upstream
+classes remain local edge. Contract statement: stateful, OAuth, browser, file-access, local-secret, and unknown upstream classes remain local edge.
+They bind state to the local client session and do not become shared-worker
+candidates.
+
+Only stateless upstreams that are explicitly allowlisted and require no local
+state can use shared-worker placement. For that class, shared-worker state binds to tenant, workspace, user, and upstream scope.
+
+Private inventory class labels are forbidden. Contract statement: private inventory class labels are forbidden. The policy fails closed before
+producing a placement decision for those labels.
+
+The code contract lives in `mcp_broker.session_affinity`. It makes pure
+classification and state-placement decisions without routing traffic, starting
+workers, calling upstream tools, or changing runtime state.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote
