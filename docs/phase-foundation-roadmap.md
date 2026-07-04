@@ -18,14 +18,16 @@ quota, audit, rollback, and E2E gates pass.
 ## Release Reliability Blocker
 
 Before the next public release, harden the Publish Everywhere transaction.
-Current state verified on 2026-07-02: GitHub latest release is `v1.4.1`, while
-npm reports `${NPM_PACKAGE_NAME}@${PACKAGE_VERSION}` as `latest`. The 2026-06-27
-`${PACKAGE_VERSION}` fanout partly published registry surfaces, then failed
-before GitHub release creation. The required fix is a transaction-safe release
-path with per-registry preflight, idempotent reruns, live verification, and
-GitHub release recovery. Idempotent reruns must skip a surface only after
-verifying registry metadata: PyPI artifact digests, NPM package integrity, MCP
-Registry name/version metadata, and Homebrew formula SHA.
+Current state verified on 2026-07-04: GitHub Release `v${PACKAGE_VERSION}` has
+been recovered, and PyPI, npm, Docker Hub, Docker Registry, MCP Registry,
+Homebrew, and the GitHub Release verify live. GHCR remains blocked because
+`${GHCR_REPOSITORY_IMAGE}:${PACKAGE_VERSION}` is not anonymously readable and
+the current local GitHub token lacks package scopes. The required fix before
+the next public release is a transaction-safe release path with per-registry
+preflight, idempotent reruns, live verification, and GHCR visibility or scope
+resolution. Idempotent reruns must skip a surface only after verifying registry
+metadata: PyPI artifact digests, NPM package integrity, MCP Registry
+name/version metadata, and Homebrew formula SHA.
 
 ## Phase 1: Plugin And Local Deployment Foundation
 
