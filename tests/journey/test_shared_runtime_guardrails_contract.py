@@ -23,6 +23,7 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "## Tenant Model",
         "## Remote API Contract",
         "## Session Affinity And State Placement",
+        "## Quota And Cost Controls",
         "## Mandatory Non-Goals",
     ]
     required_terms = [
@@ -48,6 +49,11 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "stateful, OAuth, browser, file-access, local-secret, and unknown upstream classes remain local edge",
         "shared-worker state binds to tenant, workspace, user, and upstream scope",
         "private inventory class labels are forbidden",
+        "default quota decision is deny",
+        "external metering is not implemented",
+        "global, team, user, upstream, and tool scopes",
+        "quota denial is fail-closed and audit-required",
+        "kill switches are evaluated before limit counters",
         "local edge broker remains the default",
         "no remote listener",
         "no shared upstream execution",
