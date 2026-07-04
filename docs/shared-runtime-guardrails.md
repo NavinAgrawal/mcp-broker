@@ -53,6 +53,47 @@ Contract statement: session affinity must be designed before shared runtime.
 No gate can be satisfied by prose alone. Each gate needs a testable contract,
 a default-deny behavior, and a migration path from the local runtime.
 
+## Threat Model
+
+The P3 threat model treats tenant, workspace, user, upstream, token, log, runtime-state, and audit isolation as separate failure boundaries.
+A shared runtime must prove each boundary before hosted execution can be
+supported.
+
+The current contract remains:
+
+```yaml
+hosted_execution_supported: false
+default_execution_boundary: local_edge
+```
+
+Threats that must fail closed:
+
+- cross-tenant tool discovery
+- cross-workspace tool calls
+- user impersonation
+- upstream state reuse across tenants
+- token reuse across tenants, workspaces, users, or upstreams
+- log records that mix tenant or user scope
+- runtime-state conflict without a lock and recovery journal
+- audit events without tenant, workspace, user, action, result, and denial reason
+
+The local edge broker remains the default.
+Contract statement: unknown upstream classes default to local-only.
+Browser, file-access, OAuth, local-secret, and stateful upstreams are local-only
+until a later task proves a narrower safe class.
+
+## Tenant Model
+
+Every shared-runtime decision requires a tenant context with `tenant_id`,
+`workspace_id`, and `user_id`. The IDs are routing and audit scopes, not local
+paths, account names, email addresses, token values, or private inventory.
+
+The placement rule is deliberately narrow: stateless allowlisted upstreams are shared-worker eligible only when they require no local state. Every other upstream remains local edge.
+
+The code contract lives in `mcp_broker.shared_runtime_policy`. It defines the
+required isolation domains, validates tenant context, and returns placement
+decisions without starting hosted workers or changing runtime state.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote

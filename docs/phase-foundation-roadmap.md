@@ -103,7 +103,7 @@ quotas, worker isolation, distributed state, hybrid routing, and E2E proof.
 - [x] Define the decision gates for tenant isolation, authorization, quotas,
       session affinity, distributed state, cost controls, audit, and failure
       domains.
-- [ ] Add shared-runtime threat model and tenant model.
+- [x] Add shared-runtime threat model and tenant model.
 - [ ] Add remote broker API contract for authenticated discovery, describe,
       call, status, cancellation, streaming, and audit.
 - [ ] Add session affinity and state-placement rules.
