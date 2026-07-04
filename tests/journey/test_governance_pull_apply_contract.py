@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -161,6 +162,59 @@ def test_make_governance_rollout_control_records_action_ledger(tmp_path: Path) -
 
     assert "governance rollout actions recorded: 1" in result.stdout
     assert (runtime_root / "state" / "governance-rollout" / "action-log.jsonl").is_file()
+
+
+def test_make_governance_approve_records_expiring_approval(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+
+    result = subprocess.run(
+        make_command(
+            "governance-approve",
+            f"RUNTIME_ROOT={runtime_root}",
+            "GOVERNANCE_APPROVAL_REQUEST_TYPE=rollout",
+            "GOVERNANCE_APPROVAL_OPERATOR=release-operator",
+            "GOVERNANCE_APPROVAL_REASON=approve staged rollout",
+            "GOVERNANCE_APPROVAL_EXPIRES_AT=2026-07-04T06:30:00Z",
+            "GOVERNANCE_APPROVAL_ACTION_IDS=0001-broker-a-canary",
+            "GOVERNANCE_APPROVAL_CREATED_AT=2026-07-04T06:00:00Z",
+        ),
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert "governance approval recorded:" in result.stdout
+    assert (runtime_root / "state" / "governance-approvals" / "audit.jsonl").is_file()
+
+
+def test_make_governance_approve_ignores_inherited_shell_argument_state(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+
+    result = subprocess.run(
+        make_command(
+            "governance-approve",
+            f"RUNTIME_ROOT={runtime_root}",
+            "GOVERNANCE_APPROVAL_REQUEST_TYPE=rollout",
+            "GOVERNANCE_APPROVAL_OPERATOR=release-operator",
+            "GOVERNANCE_APPROVAL_REASON=approve staged rollout",
+            "GOVERNANCE_APPROVAL_EXPIRES_AT=2026-07-04T06:30:00Z",
+            "GOVERNANCE_APPROVAL_CREATED_AT=2026-07-04T06:00:00Z",
+        ),
+        cwd=ROOT,
+        env={**os.environ, "ACTION_ARGS": "--action-id polluted-from-env"},
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode != 0
+    assert "at least one action id is required" in result.stdout
+    assert not (runtime_root / "state" / "governance-approvals" / "audit.jsonl").exists()
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:

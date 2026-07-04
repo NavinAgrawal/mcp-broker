@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from mcp_broker.governance_approval import main as governance_approval_main
 from mcp_broker.governance_pull import main as governance_pull_main
 from mcp_broker.governance_rollout_controller import main as rollout_controller_main
 
@@ -24,11 +25,14 @@ def add_governance_parser(
     _add_apply_parser(governance_subparsers)
     _add_rollback_parser(governance_subparsers)
     _add_rollout_control_parser(governance_subparsers)
+    _add_approve_parser(governance_subparsers)
 
 
 def handle_governance(args: argparse.Namespace) -> int:
     if args.governance_command == "rollout-control":
         return _handle_rollout_control(args)
+    if args.governance_command == "approve":
+        return _handle_approve(args)
     argv = [args.governance_command, "--state-dir", str(args.state_dir.expanduser())]
     if args.governance_command == "pull":
         argv.extend(
@@ -75,6 +79,30 @@ def _handle_rollout_control(args: argparse.Namespace) -> int:
     if args.created_at:
         argv.extend(["--created-at", args.created_at])
     return rollout_controller_main(argv)
+
+
+def _handle_approve(args: argparse.Namespace) -> int:
+    argv = [
+        "--state-dir",
+        str(args.state_dir.expanduser()),
+        "--request-type",
+        args.request_type,
+        "--operator",
+        args.operator,
+        "--reason",
+        args.reason,
+        "--expires-at",
+        args.expires_at,
+    ]
+    for action_id in args.action_id:
+        argv.extend(["--action-id", action_id])
+    for policy_path in args.policy_path:
+        argv.extend(["--policy-path", policy_path])
+    if args.break_glass_record_id:
+        argv.extend(["--break-glass-record-id", args.break_glass_record_id])
+    if args.created_at:
+        argv.extend(["--created-at", args.created_at])
+    return governance_approval_main(argv)
 
 
 def _add_pull_parser(
@@ -132,3 +160,22 @@ def _add_rollout_control_parser(
     rollout_parser.add_argument("--bundle-digest", required=True)
     rollout_parser.add_argument("--created-at")
     rollout_parser.set_defaults(handler=handle_governance)
+
+
+def _add_approve_parser(
+    governance_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    approve_parser = governance_subparsers.add_parser(
+        "approve",
+        help="Record an expiring local approval for a governance mutation",
+    )
+    approve_parser.add_argument("--state-dir", required=True, type=Path)
+    approve_parser.add_argument("--request-type", required=True)
+    approve_parser.add_argument("--operator", required=True)
+    approve_parser.add_argument("--reason", required=True)
+    approve_parser.add_argument("--expires-at", required=True)
+    approve_parser.add_argument("--action-id", action="append", default=[])
+    approve_parser.add_argument("--policy-path", action="append", default=[])
+    approve_parser.add_argument("--break-glass-record-id")
+    approve_parser.add_argument("--created-at")
+    approve_parser.set_defaults(handler=handle_governance)
