@@ -28,6 +28,7 @@ def test_governance_docs_split_publishable_bundle_documents() -> None:
         "## Offline Control-Plane Simulation",
         "## Signed Bundle Publishing",
         "## Assignment Source Contract",
+        "## Rollout Controller",
     ]
     required_terms = [
         "profile bundle",
@@ -65,6 +66,10 @@ def test_governance_docs_split_publishable_bundle_documents() -> None:
         "unpublished bundle target",
         "ambiguous assignment matches",
         "local paths are not allowed",
+        "mcp-broker governance rollout-control",
+        "governance-rollout/action-log.jsonl",
+        "append-only action ledger",
+        "canary, staged, broad, rollback, and hold actions",
     ]
     forbidden_terms = [
         "/Users/",

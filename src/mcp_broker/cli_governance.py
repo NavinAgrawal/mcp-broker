@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from mcp_broker.governance_pull import main as governance_pull_main
+from mcp_broker.governance_rollout_controller import main as rollout_controller_main
 
 
 def add_governance_parser(
@@ -22,9 +23,12 @@ def add_governance_parser(
     _add_pull_parser(governance_subparsers)
     _add_apply_parser(governance_subparsers)
     _add_rollback_parser(governance_subparsers)
+    _add_rollout_control_parser(governance_subparsers)
 
 
 def handle_governance(args: argparse.Namespace) -> int:
+    if args.governance_command == "rollout-control":
+        return _handle_rollout_control(args)
     argv = [args.governance_command, "--state-dir", str(args.state_dir.expanduser())]
     if args.governance_command == "pull":
         argv.extend(
@@ -49,6 +53,28 @@ def handle_governance(args: argparse.Namespace) -> int:
             ]
         )
     return governance_pull_main(argv)
+
+
+def _handle_rollout_control(args: argparse.Namespace) -> int:
+    argv = [
+        "--simulation",
+        str(args.simulation.expanduser()),
+        "--state-dir",
+        str(args.state_dir.expanduser()),
+        "--operator",
+        args.operator,
+        "--bundle-id",
+        args.bundle_id,
+        "--bundle-version",
+        args.bundle_version,
+        "--bundle-channel",
+        args.bundle_channel,
+        "--bundle-digest",
+        args.bundle_digest,
+    ]
+    if args.created_at:
+        argv.extend(["--created-at", args.created_at])
+    return rollout_controller_main(argv)
 
 
 def _add_pull_parser(
@@ -88,3 +114,21 @@ def _add_rollback_parser(
     )
     rollback_parser.add_argument("--state-dir", required=True, type=Path)
     rollback_parser.set_defaults(handler=handle_governance)
+
+
+def _add_rollout_control_parser(
+    governance_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    rollout_parser = governance_subparsers.add_parser(
+        "rollout-control",
+        help="Record local rollout-control audit actions from a simulation result",
+    )
+    rollout_parser.add_argument("--simulation", required=True, type=Path)
+    rollout_parser.add_argument("--state-dir", required=True, type=Path)
+    rollout_parser.add_argument("--operator", required=True)
+    rollout_parser.add_argument("--bundle-id", required=True)
+    rollout_parser.add_argument("--bundle-version", required=True)
+    rollout_parser.add_argument("--bundle-channel", required=True)
+    rollout_parser.add_argument("--bundle-digest", required=True)
+    rollout_parser.add_argument("--created-at")
+    rollout_parser.set_defaults(handler=handle_governance)
