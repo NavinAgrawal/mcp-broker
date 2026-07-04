@@ -217,6 +217,63 @@ def test_make_governance_approve_ignores_inherited_shell_argument_state(
     assert not (runtime_root / "state" / "governance-approvals" / "audit.jsonl").exists()
 
 
+def test_make_governance_reference_control_plane_writes_report(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    bundle_path = _bundle_for_reference_control_plane(tmp_path)
+    assignment_path = _write_json(tmp_path / "assignment.json", _reference_assignment())
+    context_path = _write_json(tmp_path / "context.json", _reference_context())
+    fleet_path = _write_json(tmp_path / "fleet.json", _reference_fleet_status())
+    provenance_path = _write_json(
+        tmp_path / "provenance.json",
+        {
+            "repository": "mcp-broker",
+            "commit": "abc1234",
+            "builder": "reference-control-plane",
+        },
+    )
+
+    result = subprocess.run(
+        make_command(
+            "governance-reference-control-plane",
+            f"RUNTIME_ROOT={runtime_root}",
+            f"GOVERNANCE_REFERENCE_BUNDLE={bundle_path}",
+            f"GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE={assignment_path}",
+            f"GOVERNANCE_REFERENCE_BROKER_CONTEXT={context_path}",
+            f"GOVERNANCE_REFERENCE_FLEET_STATUS={fleet_path}",
+            "GOVERNANCE_REFERENCE_TARGET_URL=https://control.example.invalid/fleet-status",
+            "GOVERNANCE_REFERENCE_AUTH_REF=env:GOVERNANCE_CONTROL_TOKEN",
+            "GOVERNANCE_REFERENCE_OPERATOR=release-operator",
+            "GOVERNANCE_REFERENCE_SIGNATURE_REF=sigstore:reference-control-plane.sig",
+            f"GOVERNANCE_REFERENCE_PROVENANCE={provenance_path}",
+            "GOVERNANCE_REFERENCE_APPROVAL_EXPIRES_AT=2026-07-04T07:30:00Z",
+            "GOVERNANCE_REFERENCE_CREATED_AT=2026-07-04T07:00:00Z",
+        ),
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    report_path = (
+        runtime_root
+        / "state"
+        / "governance-reference-control-plane"
+        / "reports"
+        / "reference-report.json"
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert "governance reference control-plane report:" in result.stdout
+    assert report["contracts"] == [
+        "publish",
+        "assign",
+        "collect",
+        "rollout_control",
+        "approve",
+        "rollback",
+    ]
+
+
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "mcp_broker.cli", *args],
@@ -250,6 +307,66 @@ def _assigned_bundle(
         "changed_runtime_state": False,
     }
     return bundle_path, decision
+
+
+def _bundle_for_reference_control_plane(tmp_path: Path) -> Path:
+    return write_signed_bundle(tmp_path / "reference-bundle.json", minimal_bundle())
+
+
+def _reference_assignment() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "assignments": [
+            {
+                "assignment_id": "platform-canary",
+                "priority": 100,
+                "match": {
+                    "broker_ids": ["broker-west-1"],
+                    "teams": ["platform"],
+                    "channels": ["stable"],
+                    "rings": ["canary"],
+                },
+                "target": {
+                    "bundle_id": "personal-local",
+                    "version": "2026.07.01",
+                    "channel": "stable",
+                },
+            }
+        ],
+    }
+
+
+def _reference_context() -> dict[str, object]:
+    return {
+        "broker_id": "broker-west-1",
+        "channel": "stable",
+        "ring": "canary",
+        "teams": ["platform"],
+        "user": "engineer-1",
+    }
+
+
+def _reference_fleet_status() -> dict[str, object]:
+    return {
+        "identity": {
+            "active_profiles": ["codex"],
+            "broker_id": "broker-west-1",
+            "bundle_version": "2026.07.00",
+            "environment": "local",
+            "schema_version": 1,
+        },
+        "health": {
+            "last_request_status": "ok",
+            "started_at": "2026-07-04T07:00:00Z",
+            "status": "healthy",
+            "updated_at": "2026-07-04T07:00:00Z",
+        },
+        "request_counters": {
+            "request_errors_total": 0,
+            "requests_total": 1,
+        },
+        "upstreams": {},
+    }
 
 
 def _approval(decision: dict[str, object]) -> dict[str, object]:

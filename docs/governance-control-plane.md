@@ -266,6 +266,49 @@ The approval store writes records under `governance-approvals/records/` and
 appends audit events to `governance-approvals/audit.jsonl`. The Make target is
 `governance-approve`.
 
+## Reference Control Plane
+
+The reference control plane is a local proof flow. It exercises publish, assign, collect, rollout_control, approve, and rollback governance contracts in one command while preserving the local execution boundary.
+It does not centralize tool execution, does not call upstream tools, does not
+fetch remote bundles, does not apply deployments, and does not open an inbound
+listener.
+
+```bash
+mcp-broker governance reference-control-plane \
+  --mode local_reference_only \
+  --state-dir ~/mcp/mcp-broker/state \
+  --bundle path/to/signed-bundle.json \
+  --assignment-source path/to/assignment-source.json \
+  --broker-context path/to/broker-context.json \
+  --fleet-status path/to/fleet-status.json \
+  --target-url https://collector.example.invalid/mcp-broker/fleet-status \
+  --auth-ref env:MCP_BROKER_FLEET_COLLECTOR_TOKEN \
+  --operator release-operator \
+  --signature-ref sigstore:governance-bundle.sig \
+  --provenance path/to/provenance.json \
+  --approval-expires-at 2026-07-04T07:30:00Z
+```
+
+The Make target is `governance-reference-control-plane`. It reads
+`GOVERNANCE_REFERENCE_BUNDLE`,
+`GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE`,
+`GOVERNANCE_REFERENCE_BROKER_CONTEXT`,
+`GOVERNANCE_REFERENCE_FLEET_STATUS`,
+`GOVERNANCE_REFERENCE_TARGET_URL`,
+`GOVERNANCE_REFERENCE_AUTH_REF`,
+`GOVERNANCE_REFERENCE_OPERATOR`,
+`GOVERNANCE_REFERENCE_SIGNATURE_REF`,
+`GOVERNANCE_REFERENCE_PROVENANCE`,
+`GOVERNANCE_REFERENCE_APPROVAL_EXPIRES_AT`, and optional
+`GOVERNANCE_REFERENCE_CREATED_AT`.
+
+`local_reference_only` is the only supported mode. The flow writes its combined
+evidence report to
+`governance-reference-control-plane/reports/reference-report.json` under local
+runtime state. The report records signed publish output, assignment result,
+prepare-only collection envelope, rollout-control action ledger summary,
+approval record, rollback decision, and `changed_runtime_state: false`.
+
 ## Fleet Status Export And Collection
 
 Fleet status is a redacted export derived from the local

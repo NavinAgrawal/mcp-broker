@@ -1,4 +1,4 @@
-.PHONY: runtime-layout doctor broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollback governance-rollout-control governance-approve fleet-status-collect break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
+.PHONY: runtime-layout doctor broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollback governance-rollout-control governance-approve governance-reference-control-plane fleet-status-collect break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
 
 runtime-layout: ## Create configured runtime directories
 	$(call log_step,"Runtime layout")
@@ -218,6 +218,44 @@ governance-approve: runtime-layout ## Record an expiring local approval for a go
 		$$BREAK_GLASS_ARG \
 		$$CREATED_AT_ARG
 	$(call log_success,"Governance approval recorded")
+
+governance-reference-control-plane: runtime-layout ## Run the local reference control-plane flow
+	@test -n "$(GOVERNANCE_REFERENCE_BUNDLE)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_BUNDLE"); exit 2; }
+	@test -f "$(GOVERNANCE_REFERENCE_BUNDLE)" || { $(call log_error,"Missing GOVERNANCE_REFERENCE_BUNDLE=$(GOVERNANCE_REFERENCE_BUNDLE)"); exit 1; }
+	@test -n "$(GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE"); exit 2; }
+	@test -f "$(GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE)" || { $(call log_error,"Missing GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE=$(GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE)"); exit 1; }
+	@test -n "$(GOVERNANCE_REFERENCE_BROKER_CONTEXT)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_BROKER_CONTEXT"); exit 2; }
+	@test -f "$(GOVERNANCE_REFERENCE_BROKER_CONTEXT)" || { $(call log_error,"Missing GOVERNANCE_REFERENCE_BROKER_CONTEXT=$(GOVERNANCE_REFERENCE_BROKER_CONTEXT)"); exit 1; }
+	@test -n "$(GOVERNANCE_REFERENCE_FLEET_STATUS)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_FLEET_STATUS"); exit 2; }
+	@test -f "$(GOVERNANCE_REFERENCE_FLEET_STATUS)" || { $(call log_error,"Missing GOVERNANCE_REFERENCE_FLEET_STATUS=$(GOVERNANCE_REFERENCE_FLEET_STATUS)"); exit 1; }
+	@test -n "$(GOVERNANCE_REFERENCE_TARGET_URL)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_TARGET_URL"); exit 2; }
+	@test -n "$(GOVERNANCE_REFERENCE_AUTH_REF)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_AUTH_REF"); exit 2; }
+	@test -n "$(GOVERNANCE_REFERENCE_OPERATOR)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_OPERATOR"); exit 2; }
+	@test -n "$(GOVERNANCE_REFERENCE_SIGNATURE_REF)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_SIGNATURE_REF"); exit 2; }
+	@test -n "$(GOVERNANCE_REFERENCE_PROVENANCE)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_PROVENANCE"); exit 2; }
+	@test -f "$(GOVERNANCE_REFERENCE_PROVENANCE)" || { $(call log_error,"Missing GOVERNANCE_REFERENCE_PROVENANCE=$(GOVERNANCE_REFERENCE_PROVENANCE)"); exit 1; }
+	@test -n "$(GOVERNANCE_REFERENCE_APPROVAL_EXPIRES_AT)" || { $(call log_error,"Set GOVERNANCE_REFERENCE_APPROVAL_EXPIRES_AT"); exit 2; }
+	@if [[ -n "$(GOVERNANCE_REFERENCE_CREATED_AT)" ]]; then \
+		CREATED_AT_ARG="--created-at $(GOVERNANCE_REFERENCE_CREATED_AT)"; \
+	else \
+		CREATED_AT_ARG=""; \
+	fi; \
+	MODE="$${GOVERNANCE_REFERENCE_MODE:-local_reference_only}"; \
+	PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m mcp_broker.cli governance reference-control-plane \
+		--mode "$$MODE" \
+		--state-dir "$(STATE_DIR)" \
+		--bundle "$(GOVERNANCE_REFERENCE_BUNDLE)" \
+		--assignment-source "$(GOVERNANCE_REFERENCE_ASSIGNMENT_SOURCE)" \
+		--broker-context "$(GOVERNANCE_REFERENCE_BROKER_CONTEXT)" \
+		--fleet-status "$(GOVERNANCE_REFERENCE_FLEET_STATUS)" \
+		--target-url "$(GOVERNANCE_REFERENCE_TARGET_URL)" \
+		--auth-ref "$(GOVERNANCE_REFERENCE_AUTH_REF)" \
+		--operator "$(GOVERNANCE_REFERENCE_OPERATOR)" \
+		--signature-ref "$(GOVERNANCE_REFERENCE_SIGNATURE_REF)" \
+		--provenance "$(GOVERNANCE_REFERENCE_PROVENANCE)" \
+		--approval-expires-at "$(GOVERNANCE_REFERENCE_APPROVAL_EXPIRES_AT)" \
+		$$CREATED_AT_ARG
+	$(call log_success,"Governance reference control-plane completed")
 
 fleet-status-collect: runtime-layout ## Prepare a redacted fleet-status collection envelope without uploading
 	@test -n "$(FLEET_STATUS_TARGET)" || { $(call log_error,"Set FLEET_STATUS_TARGET"); exit 2; }

@@ -7,6 +7,9 @@ from pathlib import Path
 
 from mcp_broker.governance_approval import main as governance_approval_main
 from mcp_broker.governance_pull import main as governance_pull_main
+from mcp_broker.governance_reference_control_plane import (
+    main as reference_control_plane_main,
+)
 from mcp_broker.governance_rollout_controller import main as rollout_controller_main
 
 
@@ -26,6 +29,7 @@ def add_governance_parser(
     _add_rollback_parser(governance_subparsers)
     _add_rollout_control_parser(governance_subparsers)
     _add_approve_parser(governance_subparsers)
+    _add_reference_control_plane_parser(governance_subparsers)
 
 
 def handle_governance(args: argparse.Namespace) -> int:
@@ -33,6 +37,8 @@ def handle_governance(args: argparse.Namespace) -> int:
         return _handle_rollout_control(args)
     if args.governance_command == "approve":
         return _handle_approve(args)
+    if args.governance_command == "reference-control-plane":
+        return _handle_reference_control_plane(args)
     argv = [args.governance_command, "--state-dir", str(args.state_dir.expanduser())]
     if args.governance_command == "pull":
         argv.extend(
@@ -103,6 +109,38 @@ def _handle_approve(args: argparse.Namespace) -> int:
     if args.created_at:
         argv.extend(["--created-at", args.created_at])
     return governance_approval_main(argv)
+
+
+def _handle_reference_control_plane(args: argparse.Namespace) -> int:
+    argv = [
+        "--mode",
+        args.mode,
+        "--state-dir",
+        str(args.state_dir.expanduser()),
+        "--bundle",
+        str(args.bundle.expanduser()),
+        "--assignment-source",
+        str(args.assignment_source.expanduser()),
+        "--broker-context",
+        str(args.broker_context.expanduser()),
+        "--fleet-status",
+        str(args.fleet_status.expanduser()),
+        "--target-url",
+        args.target_url,
+        "--auth-ref",
+        args.auth_ref,
+        "--operator",
+        args.operator,
+        "--signature-ref",
+        args.signature_ref,
+        "--provenance",
+        str(args.provenance.expanduser()),
+        "--approval-expires-at",
+        args.approval_expires_at,
+    ]
+    if args.created_at:
+        argv.extend(["--created-at", args.created_at])
+    return reference_control_plane_main(argv)
 
 
 def _add_pull_parser(
@@ -179,3 +217,26 @@ def _add_approve_parser(
     approve_parser.add_argument("--break-glass-record-id")
     approve_parser.add_argument("--created-at")
     approve_parser.set_defaults(handler=handle_governance)
+
+
+def _add_reference_control_plane_parser(
+    governance_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    reference_parser = governance_subparsers.add_parser(
+        "reference-control-plane",
+        help="Run the local reference control-plane flow",
+    )
+    reference_parser.add_argument("--mode", default="local_reference_only")
+    reference_parser.add_argument("--state-dir", required=True, type=Path)
+    reference_parser.add_argument("--bundle", required=True, type=Path)
+    reference_parser.add_argument("--assignment-source", required=True, type=Path)
+    reference_parser.add_argument("--broker-context", required=True, type=Path)
+    reference_parser.add_argument("--fleet-status", required=True, type=Path)
+    reference_parser.add_argument("--target-url", required=True)
+    reference_parser.add_argument("--auth-ref", required=True)
+    reference_parser.add_argument("--operator", required=True)
+    reference_parser.add_argument("--signature-ref", required=True)
+    reference_parser.add_argument("--provenance", required=True, type=Path)
+    reference_parser.add_argument("--approval-expires-at", required=True)
+    reference_parser.add_argument("--created-at")
+    reference_parser.set_defaults(handler=handle_governance)

@@ -83,7 +83,7 @@ status collection, rollout control, approvals, and a reference control plane.
       actions.
 - [x] Add operator approval workflow for mutating rollout, rollback, policy
       override, and break-glass.
-- [ ] Add a minimal reference control plane that exercises governance without
+- [x] Add a minimal reference control plane that exercises governance without
       centralizing tool execution.
 
 Phase 2 build order is publish, assign, pull/apply, collect, control rollout,

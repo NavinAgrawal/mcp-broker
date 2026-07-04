@@ -30,6 +30,7 @@ def test_governance_docs_split_publishable_bundle_documents() -> None:
         "## Assignment Source Contract",
         "## Rollout Controller",
         "## Operator Approval Workflow",
+        "## Reference Control Plane",
     ]
     required_terms = [
         "profile bundle",
@@ -75,6 +76,14 @@ def test_governance_docs_split_publishable_bundle_documents() -> None:
         "governance-approvals/audit.jsonl",
         "expiring approval record",
         "rollout, rollback, policy_override, and break_glass approvals",
+        "mcp-broker governance reference-control-plane",
+        "governance-reference-control-plane",
+        "local_reference_only",
+        "governance-reference-control-plane/reports/reference-report.json",
+        "publish, assign, collect, rollout_control, approve, and rollback",
+        "does not centralize tool execution",
+        "does not call upstream tools",
+        "does not apply deployments",
     ]
     forbidden_terms = [
         "/Users/",
