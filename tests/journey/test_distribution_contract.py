@@ -463,8 +463,10 @@ def test_npm_and_docker_distribution_decisions_are_recorded() -> None:
     assert "does not reimplement the Python broker in Node" in npm_doc
     assert "NPM trusted publishing is the preferred auth path" in npm_doc
     assert "NPM is an optional bridge package" in distribution
-    assert "Current source release: GitHub latest release remains behind" in distribution
-    assert "until the release recovery step creates and verifies" in distribution
+    assert "Current source release: GitHub Release" in distribution
+    assert "was recovered on" in distribution
+    assert "GHCR manifest verification" in distribution
+    assert "points at the public repository main commit" in distribution
     assert "`v${PACKAGE_VERSION}`" in distribution
     assert "${DOCKER_REPOSITORY_IMAGE}" in distribution
     assert "${GHCR_REPOSITORY_IMAGE}" in distribution

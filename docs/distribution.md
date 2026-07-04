@@ -17,11 +17,11 @@ Current public package status:
 - NPM: `${NPM_PACKAGE_NAME} ${PACKAGE_VERSION}` is published by the release transaction.
 - Docker: `${DOCKER_REPOSITORY_IMAGE}:${PACKAGE_VERSION}` is published by the
   release transaction. `${GHCR_REPOSITORY_IMAGE}:${PACKAGE_VERSION}` is a
-  claimed mirror surface, but the 2026-07-02 live audit failed anonymous GHCR
-  manifest verification.
-- Current source release: GitHub latest release remains behind
-  `${PACKAGE_VERSION}` until the release recovery step creates and verifies
-  `v${PACKAGE_VERSION}`.
+  claimed mirror surface, but the 2026-07-04 live audit still fails anonymous
+  GHCR manifest verification.
+- Current source release: GitHub Release `v${PACKAGE_VERSION}` was recovered on
+  2026-07-04 and points at the public repository main commit that contains the
+  release-idempotency hardening.
 
 The package command surface is:
 
