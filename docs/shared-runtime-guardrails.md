@@ -167,6 +167,22 @@ context, session-affinity placement, quota decisions, tool allowlisting, and
 default-deny sandbox capabilities before returning a deterministic fake-tool
 result.
 
+## Distributed Deployment State
+
+Contract statement: distributed deployment state uses a local deterministic adapter first.
+Contract statement: cloud storage is not implemented. This adapter does not introduce a
+hosted state service.
+
+Contract statement: lock acquisition, stale lock recovery, active lock conflict rejection, rollback journal, recovery replay, and audit events.
+Contract statement: state mutations require a matching lock token. Each state event carries tenant,
+workspace, user, owner, lock, revision, result, and denial scope where
+applicable.
+
+The code contract lives in `mcp_broker.distributed_state`. It stores
+shared-runtime state under the runtime state directory, appends a rollback
+journal before recovery replay is needed, and fails closed on lock or revision
+conflicts.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote

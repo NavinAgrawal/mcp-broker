@@ -109,7 +109,7 @@ quotas, worker isolation, distributed state, hybrid routing, and E2E proof.
 - [x] Add session affinity and state-placement rules.
 - [x] Add quota and cost-control engine.
 - [x] Add isolated shared worker runtime for allowlisted stateless upstreams.
-- [ ] Add distributed deployment state with locking, conflict handling,
+- [x] Add distributed deployment state with locking, conflict handling,
       rollback, recovery, and audit.
 - [ ] Add hybrid routing between local edge tools and shared workers.
 - [ ] Add shared-runtime E2E proof for tenant isolation, authz denial, quota
