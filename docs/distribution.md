@@ -118,10 +118,15 @@ The GitHub Release is created only after registry verification passes, then the
 release object is verified through the GitHub API. If the fan-out partly
 published a version and stopped before GitHub release creation, rerun the same
 `publish-everywhere` workflow for the same version. Already-published registry
-surfaces are checked and skipped, live verification proves the public state, and
-the GitHub release step recovers the missing `v<version>` release when all
-registry surfaces agree. Tag pushes do not publish. There are no per-registry
-publish workflows.
+surfaces are skipped only after `scripts/release_idempotency.py` verifies the
+registry metadata for that surface. PyPI compares every local dist artifact
+SHA-256 digest with the PyPI release JSON, NPM compares the local dry-run pack
+integrity with registry metadata, and MCP Registry requires matching
+name/version metadata before it skips. A digest mismatch or malformed registry
+payload fails closed before the target reports OK. Public live verification then
+proves the public state, and the GitHub release step recovers the missing
+`v<version>` release when all registry surfaces agree. Tag pushes do not
+publish. There are no per-registry publish workflows.
 
 The Makefile validates required publication environment before the first
 registry write. For the current surface set, `HOMEBREW_TAP_TOKEN`,
@@ -134,9 +139,10 @@ Docker Hub repository is public before the image push and before PyPI can be
 written.
 
 The orchestrator is retry-aware for partially completed releases. It checks the
-PyPI package version, NPM package version, MCP Registry metadata, and Homebrew
-formula state before submitting, so a rerun can recover after one registry
-fails without treating already-published surfaces as fatal.
+PyPI artifact digests, NPM package integrity, MCP Registry name/version
+metadata, and Homebrew formula state before submitting, so a rerun can recover
+after one registry fails without treating already-published verified surfaces as
+fatal.
 
 Before tagging a release, synchronize the version and run the release check:
 

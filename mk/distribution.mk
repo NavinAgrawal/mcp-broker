@@ -450,23 +450,43 @@ _publish-everywhere-live-verify-github-release:
 		--homebrew-formula-url "$(HOMEBREW_FORMULA_RAW_URL)"
 
 _publish-everywhere-pypi:
-	@status="$$(curl -fsS -o /dev/null -w '%{http_code}' "$(PYPI_VERSION_URL)" || true)"; \
-	if [ "$$status" = "200" ]; then \
-		printf "\033[1;32m[OK]\033[0m PyPI package already exists: %s==%s\n" "$(PYPI_PROJECT_NAME)" "$(PACKAGE_VERSION)"; \
-	elif [ "$$status" = "404" ]; then \
+	@action="$$("$(PYTHON_BIN)" "$(ROOT)/scripts/release_idempotency.py" \
+		--surface pypi \
+		--version "$(PACKAGE_VERSION)" \
+		--dist-dir "$(PACKAGE_DIST_DIR)" \
+		--pypi-version-url "$(PYPI_VERSION_URL)")" || { \
+			printf "\033[1;31m[ERROR]\033[0m PyPI idempotency check failed (digest mismatch or metadata error)\n" >&2; \
+			exit 2; \
+		}; \
+	if [ "$$action" = "skip" ]; then \
+		printf "\033[1;32m[OK]\033[0m PyPI package already verified: %s==%s\n" "$(PYPI_PROJECT_NAME)" "$(PACKAGE_VERSION)"; \
+	elif [ "$$action" = "publish" ]; then \
 		command -v "$(UV)" >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m uv is required for publish-everywhere\n" >&2; exit 2; }; \
 		"$(UV)" publish --trusted-publishing always --check-url "$(PYPI_SIMPLE_CHECK_URL)" "$(PACKAGE_DIST_DIR)"/*; \
 	else \
-		printf "\033[1;31m[ERROR]\033[0m PyPI version check failed for %s (HTTP %s)\n" "$(PYPI_VERSION_URL)" "$$status" >&2; \
+		printf "\033[1;31m[ERROR]\033[0m PyPI idempotency check returned invalid action: %s\n" "$$action" >&2; \
 		exit 2; \
 	fi
 	$(call log_success,"PyPI publish target completed: $(PACKAGE_VERSION)")
 
 _publish-everywhere-npm:
-	@if $(NPM) view "$(NPM_PACKAGE_NAME)@$(PACKAGE_VERSION)" version >/dev/null 2>&1; then \
-		printf "\033[1;32m[OK]\033[0m NPM package already exists: %s@%s\n" "$(NPM_PACKAGE_NAME)" "$(PACKAGE_VERSION)"; \
-	else \
+	@action="$$("$(PYTHON_BIN)" "$(ROOT)/scripts/release_idempotency.py" \
+		--surface npm \
+		--version "$(PACKAGE_VERSION)" \
+		--package-dir "$(NPM_DIR)" \
+		--package-name "$(NPM_PACKAGE_NAME)" \
+		--npm-registry-url "$(NPM_REGISTRY_URL)" \
+		--npm-command "$(NPM)")" || { \
+			printf "\033[1;31m[ERROR]\033[0m NPM idempotency check failed (digest mismatch or metadata error)\n" >&2; \
+			exit 2; \
+		}; \
+	if [ "$$action" = "skip" ]; then \
+		printf "\033[1;32m[OK]\033[0m NPM package already verified: %s@%s\n" "$(NPM_PACKAGE_NAME)" "$(PACKAGE_VERSION)"; \
+	elif [ "$$action" = "publish" ]; then \
 		cd "$(NPM_DIR)" && $(NPM) publish --access public --provenance; \
+	else \
+		printf "\033[1;31m[ERROR]\033[0m NPM idempotency check returned invalid action: %s\n" "$$action" >&2; \
+		exit 2; \
 	fi
 	$(call log_success,"NPM publish target completed: $(NPM_PACKAGE_NAME)")
 
@@ -488,13 +508,24 @@ _publish-everywhere-docker:
 	$(call timed_make,"publish child: docker-publish-check",docker-publish-check)
 
 _publish-everywhere-mcp-registry:
-	@if curl -fsS "$(MCP_REGISTRY_SEARCH_URL)" | "$(PYTHON)" -c 'import json, sys; version = "$(PACKAGE_VERSION)"; data = json.load(sys.stdin); sys.exit(0 if any(item.get("server", {}).get("version") == version for item in data.get("servers", [])) else 1)' >/dev/null 2>&1; then \
-		printf "\033[1;32m[OK]\033[0m MCP Registry metadata already exists: %s %s\n" "$(MCP_REGISTRY_NAME)" "$(PACKAGE_VERSION)"; \
-	else \
+	@action="$$("$(PYTHON_BIN)" "$(ROOT)/scripts/release_idempotency.py" \
+		--surface mcp-registry \
+		--version "$(PACKAGE_VERSION)" \
+		--mcp-registry-name "$(MCP_REGISTRY_NAME)" \
+		--mcp-registry-search-url "$(MCP_REGISTRY_SEARCH_URL)")" || { \
+			printf "\033[1;31m[ERROR]\033[0m MCP Registry idempotency check failed (digest mismatch or metadata error)\n" >&2; \
+			exit 2; \
+		}; \
+	if [ "$$action" = "skip" ]; then \
+		printf "\033[1;32m[OK]\033[0m MCP Registry metadata already verified: %s %s\n" "$(MCP_REGISTRY_NAME)" "$(PACKAGE_VERSION)"; \
+	elif [ "$$action" = "publish" ]; then \
 		command -v mcp-publisher >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m mcp-publisher is required for publish-everywhere\n" >&2; exit 2; }; \
 		tmpdir="$$(mktemp -d)"; \
 		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
 		(cd "$$tmpdir" && mcp-publisher login github-oidc && mcp-publisher publish); \
+	else \
+		printf "\033[1;31m[ERROR]\033[0m MCP Registry idempotency check returned invalid action: %s\n" "$$action" >&2; \
+		exit 2; \
 	fi
 	$(call log_success,"MCP Registry publish target completed")
 
