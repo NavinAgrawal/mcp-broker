@@ -208,6 +208,22 @@ The code contract lives in `mcp_broker.hybrid_router`. The daemon delegates
 ordinary upstream calls through the hybrid router while preserving broker
 catalog tools and the local edge fallback.
 
+## Full E2E Proof
+
+P3.8 adds a local end-to-end proof for every shared-runtime gate. Contract
+statement: P3.8 E2E proof covers tenant isolation, authz denial, quota denial,
+session affinity, audit events, rollback, degraded mode, local-only routing,
+and shared-eligible routing.
+
+The proof composes the real local contracts instead of mocking a hosted service:
+`mcp_broker.remote_api_contract`, `mcp_broker.hybrid_router`,
+`mcp_broker.shared_worker`, `mcp_broker.quota_policy`,
+`mcp_broker.session_affinity`, and `mcp_broker.distributed_state`.
+
+The proof keeps `hosted_execution_supported: false`. Passing P3.8 proves the
+guardrails compose locally; it does not create a hosted runtime, remote listener,
+shared upstream execution, or external metering service.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote
