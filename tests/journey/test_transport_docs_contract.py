@@ -20,3 +20,14 @@ def test_protocol_docs_capture_websocket_transport_decision() -> None:
     assert "custom transport extension point" in protocol
     assert "opened with a real server compatibility fixture" in protocol
     assert "WebSocket" in planning
+
+
+def test_protocol_docs_capture_remote_api_contract_non_listener_boundary() -> None:
+    protocol = (REPO_ROOT / "docs" / "protocol.md").read_text(encoding="utf-8")
+
+    assert "Remote Broker API Contract" in protocol
+    assert "network_listener_supported: false" in protocol
+    assert "auth_context, tenant_context, and policy_decision" in protocol
+    assert "tool discovery, describe, call, status, cancellation" in protocol
+    assert "streaming chunks and audit events" in protocol
+    assert "does not expose a network listener" in protocol

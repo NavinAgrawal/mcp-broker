@@ -21,6 +21,7 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "## Decision Gates",
         "## Threat Model",
         "## Tenant Model",
+        "## Remote API Contract",
         "## Mandatory Non-Goals",
     ]
     required_terms = [
@@ -40,6 +41,9 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "stateless allowlisted upstreams are shared-worker eligible only when they require no local state",
         "hosted_execution_supported: false",
         "default_execution_boundary: local_edge",
+        "network_listener_supported: false",
+        "authenticated tool discovery, describe, call, status, cancellation, streaming chunks, and audit events",
+        "auth_context, tenant_context, and policy_decision",
         "local edge broker remains the default",
         "no remote listener",
         "no shared upstream execution",
