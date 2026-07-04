@@ -238,6 +238,34 @@ call upstream tools.
 
 The Make target is `governance-rollout-control`.
 
+## Operator Approval Workflow
+
+The operator approval workflow records an expiring approval record for a
+governance mutation. It supports rollout, rollback, policy_override, and break_glass approvals.
+Approval records are local evidence only: they preserve
+`changed_runtime_state: false`, set `requires_apply_step: true`, and do not
+apply deployments, override policy, activate break-glass, contact a hosted
+service, or call upstream tools.
+
+```bash
+mcp-broker governance approve \
+  --state-dir ~/mcp/mcp-broker/state \
+  --request-type rollout \
+  --operator release-operator \
+  --reason "approve staged rollout" \
+  --expires-at 2026-07-04T06:30:00Z \
+  --action-id 0001-broker-a-canary
+```
+
+Rollout and rollback approvals require at least one rollout action id.
+Policy override approvals require at least one policy path. Break-glass
+approvals require a break-glass record id. Every approval record includes the
+operator, reason, expiration timestamp, target, approval id, and audit path.
+
+The approval store writes records under `governance-approvals/records/` and
+appends audit events to `governance-approvals/audit.jsonl`. The Make target is
+`governance-approve`.
+
 ## Fleet Status Export And Collection
 
 Fleet status is a redacted export derived from the local

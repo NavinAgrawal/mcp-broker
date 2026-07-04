@@ -1,4 +1,4 @@
-.PHONY: runtime-layout doctor broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollback governance-rollout-control fleet-status-collect break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
+.PHONY: runtime-layout doctor broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollback governance-rollout-control governance-approve fleet-status-collect break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
 
 runtime-layout: ## Create configured runtime directories
 	$(call log_step,"Runtime layout")
@@ -183,6 +183,41 @@ governance-rollout-control: runtime-layout ## Record local rollout-control audit
 		--bundle-digest "$(GOVERNANCE_ROLLOUT_BUNDLE_DIGEST)" \
 		$$CREATED_AT_ARG
 	$(call log_success,"Governance rollout-control completed")
+
+governance-approve: runtime-layout ## Record an expiring local approval for a governance mutation
+	@test -n "$(GOVERNANCE_APPROVAL_REQUEST_TYPE)" || { $(call log_error,"Set GOVERNANCE_APPROVAL_REQUEST_TYPE"); exit 2; }
+	@test -n "$(GOVERNANCE_APPROVAL_OPERATOR)" || { $(call log_error,"Set GOVERNANCE_APPROVAL_OPERATOR"); exit 2; }
+	@test -n "$(GOVERNANCE_APPROVAL_REASON)" || { $(call log_error,"Set GOVERNANCE_APPROVAL_REASON"); exit 2; }
+	@test -n "$(GOVERNANCE_APPROVAL_EXPIRES_AT)" || { $(call log_error,"Set GOVERNANCE_APPROVAL_EXPIRES_AT"); exit 2; }
+	@if [[ -n "$(GOVERNANCE_APPROVAL_CREATED_AT)" ]]; then \
+		CREATED_AT_ARG="--created-at $(GOVERNANCE_APPROVAL_CREATED_AT)"; \
+	else \
+		CREATED_AT_ARG=""; \
+	fi; \
+	ACTION_ARGS=""; \
+	POLICY_ARGS=""; \
+	for ACTION_ID in $(GOVERNANCE_APPROVAL_ACTION_IDS); do \
+		ACTION_ARGS="$$ACTION_ARGS --action-id $$ACTION_ID"; \
+	done; \
+	for POLICY_PATH in $(GOVERNANCE_APPROVAL_POLICY_PATHS); do \
+		POLICY_ARGS="$$POLICY_ARGS --policy-path $$POLICY_PATH"; \
+	done; \
+	if [[ -n "$(GOVERNANCE_APPROVAL_BREAK_GLASS_RECORD_ID)" ]]; then \
+		BREAK_GLASS_ARG="--break-glass-record-id $(GOVERNANCE_APPROVAL_BREAK_GLASS_RECORD_ID)"; \
+	else \
+		BREAK_GLASS_ARG=""; \
+	fi; \
+	PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m mcp_broker.cli governance approve \
+		--state-dir "$(STATE_DIR)" \
+		--request-type "$(GOVERNANCE_APPROVAL_REQUEST_TYPE)" \
+		--operator "$(GOVERNANCE_APPROVAL_OPERATOR)" \
+		--reason "$(GOVERNANCE_APPROVAL_REASON)" \
+		--expires-at "$(GOVERNANCE_APPROVAL_EXPIRES_AT)" \
+		$$ACTION_ARGS \
+		$$POLICY_ARGS \
+		$$BREAK_GLASS_ARG \
+		$$CREATED_AT_ARG
+	$(call log_success,"Governance approval recorded")
 
 fleet-status-collect: runtime-layout ## Prepare a redacted fleet-status collection envelope without uploading
 	@test -n "$(FLEET_STATUS_TARGET)" || { $(call log_error,"Set FLEET_STATUS_TARGET"); exit 2; }

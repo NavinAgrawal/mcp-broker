@@ -29,6 +29,7 @@ def test_governance_docs_split_publishable_bundle_documents() -> None:
         "## Signed Bundle Publishing",
         "## Assignment Source Contract",
         "## Rollout Controller",
+        "## Operator Approval Workflow",
     ]
     required_terms = [
         "profile bundle",
@@ -70,6 +71,10 @@ def test_governance_docs_split_publishable_bundle_documents() -> None:
         "governance-rollout/action-log.jsonl",
         "append-only action ledger",
         "canary, staged, broad, rollback, and hold actions",
+        "mcp-broker governance approve",
+        "governance-approvals/audit.jsonl",
+        "expiring approval record",
+        "rollout, rollback, policy_override, and break_glass approvals",
     ]
     forbidden_terms = [
         "/Users/",

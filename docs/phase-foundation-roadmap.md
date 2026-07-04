@@ -81,7 +81,7 @@ status collection, rollout control, approvals, and a reference control plane.
       no-secret validation.
 - [x] Add a rollout controller that turns simulator decisions into auditable
       actions.
-- [ ] Add operator approval workflow for mutating rollout, rollback, policy
+- [x] Add operator approval workflow for mutating rollout, rollback, policy
       override, and break-glass.
 - [ ] Add a minimal reference control plane that exercises governance without
       centralizing tool execution.
