@@ -13,7 +13,7 @@ from typing import Sequence
 
 from mcp_broker import __version__
 from mcp_broker.broker import BrokerCore, BrokerToolError
-from mcp_broker.catalog import BrokerCatalogFacade, profile_allows_upstream
+from mcp_broker.catalog import profile_allows_upstream
 from mcp_broker.config import BrokerConfig, UpstreamConfig
 from mcp_broker.daemon_helpers import (
     configured_upstream_health as _configured_upstream_health,
@@ -30,10 +30,12 @@ from mcp_broker.daemon_provenance import git_sha as _git_sha_impl
 from mcp_broker.daemon_provenance import source_provenance as _source_provenance_impl
 from mcp_broker.daemon_request_context import BrokerDaemonRequestContextMixin
 from mcp_broker.daemon_status import BrokerDaemonStatusMixin
+from mcp_broker.daemon_tool_calls import BrokerDaemonToolCallMixin
 from mcp_broker.daemon_upstreams import BrokerDaemonUpstreamMixin
 from mcp_broker.jsonrpc import JsonRpcRequest, JsonRpcResponse
 from mcp_broker.protocol import McpProtocolHandler
 from mcp_broker.runtime_reaper import RuntimePaths, write_socket_metadata
+from mcp_broker.shared_worker import SharedWorkerRuntime
 from mcp_broker.upstream_http import HttpUpstreamClient, HttpUpstreamError
 from mcp_broker.upstream_protocols import (
     HttpUpstreamClientProtocol,
@@ -75,6 +77,7 @@ class BrokerDaemon(
     BrokerDaemonStatusMixin,
     BrokerDaemonUpstreamMixin,
     BrokerDaemonRequestContextMixin,
+    BrokerDaemonToolCallMixin,
 ):
     runtime_root: Path
     socket_path: Path
@@ -108,6 +111,7 @@ class BrokerDaemon(
         self._last_request_method: str | None = None
         self._last_request_status: str | None = None
         self._auth_repair_stats: dict[str, dict[str, int | str]] = {}
+        self._shared_worker_runtime = SharedWorkerRuntime(tools=[])
 
     @property
     def lock_path(self) -> Path:
@@ -326,53 +330,6 @@ class BrokerDaemon(
             result = core.list_tools(upstream_tools)
         except (BrokerToolError, HttpUpstreamError, StdioUpstreamError, ValueError) as exc:
             return JsonRpcResponse.error(request.id, -32000, str(exc))
-        return JsonRpcResponse.result(request.id, result)
-
-    def _handle_tools_call(self, request: JsonRpcRequest) -> JsonRpcResponse:
-        if self.broker_config is None:
-            return JsonRpcResponse.error(request.id, -32000, "broker config is not loaded")
-        params = request.params
-        if not isinstance(params, dict):
-            return JsonRpcResponse.error(request.id, -32602, "tools/call params must be an object")
-        name = params.get("name")
-        arguments = params.get("arguments", {})
-        if not isinstance(name, str) or not isinstance(arguments, dict):
-            return JsonRpcResponse.error(request.id, -32602, "tools/call name and arguments required")
-        try:
-            session_id = self._session_id_from_params(params)
-            session_context = self._session_context_from_params(params)
-            profile = self._effective_profile(params, session_context)
-        except ValueError as exc:
-            return JsonRpcResponse.error(request.id, -32602, str(exc))
-        call_upstream = self._call_upstream_for_session(session_id, session_context)
-        list_upstream = self._list_upstream_for_session(session_id, session_context)
-        canonical_name = profile.canonical_broker_tool_name(name) if profile is not None else name
-        if canonical_name.startswith("broker."):
-            try:
-                result = BrokerCatalogFacade(
-                    broker_config=self.broker_config,
-                    profile=profile,
-                    list_upstream=list_upstream,
-                    call_upstream=call_upstream,
-                    call_locks=self._upstream_call_locks,
-                    status_provider=self._upstream_health_for_status,
-                    client_cwd=session_context.get("client_cwd"),
-                ).call_tool(name, arguments)
-            except (BrokerToolError, ValueError) as exc:
-                return JsonRpcResponse.error(request.id, -32000, str(exc))
-            return JsonRpcResponse.result(request.id, result)
-        arguments = self._inject_cwd_project_arg(name, arguments, session_context)
-        core = BrokerCore(
-            settings=self.broker_config.broker,
-            upstreams=self.broker_config.upstreams,
-            profile=profile,
-            call_locks=self._upstream_call_locks,
-        )
-        try:
-            result = core.call_tool(name, arguments, call_upstream)
-        except (BrokerToolError, ValueError) as exc:
-            message = exc.message if isinstance(exc, BrokerToolError) else str(exc)
-            return JsonRpcResponse.error(request.id, -32000, message)
         return JsonRpcResponse.result(request.id, result)
 
     def _create_stdio_upstream_process(

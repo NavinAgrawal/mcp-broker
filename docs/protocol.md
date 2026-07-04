@@ -228,3 +228,12 @@ upstream and original upstream tool name, passes the upstream call timeout from
 config, and maps upstream timeout, crash, unknown-tool, invalid-argument,
 disabled-prefix, profile-denial, and mutating-profile-denial failures to
 broker-owned error codes.
+
+`mcp_broker.hybrid_router.HybridToolRouter` is the Phase 3 route classifier for
+ordinary upstream `tools/call` requests. It preserves the same client-visible
+tool name and argument object. By default it calls the local edge upstream path.
+Only upstreams tagged `stateless` and `shared-worker`, configured in shared
+mode, free of local state/env/session metadata, and supplied with tenant,
+team, and quota metadata can route to the in-process fake shared worker proof.
+Quota denial on that shared path fails closed and does not retry through the
+local edge broker.

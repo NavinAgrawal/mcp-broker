@@ -3018,6 +3018,106 @@ def test_daemon_tools_call_rejects_disabled_upstream_without_starting_stdio(
     assert daemon._stdio_upstreams == {}
 
 
+def test_daemon_tools_call_delegates_normal_calls_through_hybrid_router(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mcp_broker.daemon as daemon_module
+    import mcp_broker.daemon_tool_calls as daemon_tool_calls_module
+    from mcp_broker.config import BrokerConfig, BrokerSettings, RuntimeConfig, UpstreamConfig
+    from mcp_broker.jsonrpc import JsonRpcRequest
+
+    router_calls: list[dict[str, object]] = []
+
+    class RecordingHybridRouter:
+        def __init__(  # type: ignore[no-untyped-def]
+            self,
+            *,
+            upstreams,
+            shared_worker,
+            settings,
+            profile,
+            call_locks,
+        ):
+            self.upstreams = upstreams
+            self.shared_worker = shared_worker
+            self.settings = settings
+            self.profile = profile
+            self.call_locks = call_locks
+
+        def call_tool(
+            self,
+            *,
+            advertised_name,
+            arguments,
+            edge_caller,
+            tenant_context,
+            team_id,
+            quota_snapshot,
+        ):  # type: ignore[no-untyped-def]
+            router_calls.append(
+                {
+                    "advertised_name": advertised_name,
+                    "arguments": arguments,
+                    "tenant_context": tenant_context,
+                    "team_id": team_id,
+                    "quota_snapshot": quota_snapshot,
+                    "upstreams": sorted(self.upstreams),
+                    "shared_worker_type": type(self.shared_worker).__name__,
+                }
+            )
+            return edge_caller("read-store", "search", arguments, 60)
+
+    monkeypatch.setattr(daemon_tool_calls_module, "HybridToolRouter", RecordingHybridRouter)
+    config = BrokerConfig(
+        runtime=RuntimeConfig(
+            root=tmp_path / "runtime",
+            socket_path=tmp_path / "broker.sock",
+            log_dir=tmp_path / "runtime" / "logs",
+            state_dir=tmp_path / "runtime" / "state",
+            secrets_dir=tmp_path / "runtime" / "secrets",
+        ),
+        broker=BrokerSettings(),
+        upstreams={
+            "read-store": UpstreamConfig(
+                name="read-store",
+                command="read-store",
+                tool_prefix="read-store",
+            )
+        },
+    )
+    daemon = daemon_module.BrokerDaemon(
+        runtime_root=config.runtime.root,
+        socket_path=config.runtime.socket_path,
+        broker_config=config,
+    )
+    daemon._stdio_upstreams["read-store"] = CatalogClient(
+        tools=[{"name": "search"}],
+        response={"content": [{"type": "text", "text": "found"}]},
+    )
+    request = JsonRpcRequest(
+        method="tools/call",
+        id="call",
+        params={"name": "read-store.search", "arguments": {"query": "refund"}},
+        has_id=True,
+    )
+
+    response = daemon._handle_tools_call(request)
+
+    assert response.result == {"content": [{"type": "text", "text": "found"}]}
+    assert router_calls == [
+        {
+            "advertised_name": "read-store.search",
+            "arguments": {"query": "refund"},
+            "tenant_context": None,
+            "team_id": None,
+            "quota_snapshot": None,
+            "upstreams": ["read-store"],
+            "shared_worker_type": "SharedWorkerRuntime",
+        }
+    ]
+
+
 def test_daemon_maps_stdio_timeout_and_error(tmp_path: Path) -> None:
     from mcp_broker.broker import BrokerToolError
     from mcp_broker.config import BrokerConfig, BrokerSettings, RuntimeConfig, UpstreamConfig

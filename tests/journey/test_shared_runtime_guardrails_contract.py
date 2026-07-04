@@ -26,6 +26,7 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "## Quota And Cost Controls",
         "## Shared Worker Runtime",
         "## Distributed Deployment State",
+        "## Hybrid Routing",
         "## Mandatory Non-Goals",
     ]
     required_terms = [
@@ -64,6 +65,10 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "lock acquisition, stale lock recovery, active lock conflict rejection, rollback journal, recovery replay, and audit events",
         "cloud storage is not implemented",
         "state mutations require a matching lock token",
+        "hybrid routing preserves the existing tools/call client shape",
+        "local-only tools continue to route to the edge broker",
+        "allowlisted stateless tools can route to shared workers only after quota approval",
+        "shared-worker quota denial does not fall back to local edge execution",
         "local edge broker remains the default",
         "no remote listener",
         "no shared upstream execution",
