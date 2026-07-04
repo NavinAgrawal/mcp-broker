@@ -24,6 +24,7 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "## Remote API Contract",
         "## Session Affinity And State Placement",
         "## Quota And Cost Controls",
+        "## Shared Worker Runtime",
         "## Mandatory Non-Goals",
     ]
     required_terms = [
@@ -54,6 +55,10 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "global, team, user, upstream, and tool scopes",
         "quota denial is fail-closed and audit-required",
         "kill switches are evaluated before limit counters",
+        "in-process fake worker only",
+        "network, file-access, secret, local-state, and inherited-environment access default to deny",
+        "real upstream routing is not implemented",
+        "unsupported shared-worker tools are denied with audit events",
         "local edge broker remains the default",
         "no remote listener",
         "no shared upstream execution",

@@ -152,6 +152,21 @@ quota decisions from a supplied snapshot without billing calls, external
 metering calls, counter writes, routing traffic, starting workers, or changing
 runtime state.
 
+## Shared Worker Runtime
+
+P3.5 adds an in-process fake worker only. It is a proof surface for shared
+runtime policy, not a hosted execution service and not a route to real upstream
+MCP servers. Real upstream routing is not implemented.
+
+Only allowlisted stateless fake tools can run in this worker proof. Contract statement: network, file-access, secret, local-state, and inherited-environment access default to deny.
+Contract statement: real upstream routing is not implemented.
+Contract statement: unsupported shared-worker tools are denied with audit events.
+
+The code contract lives in `mcp_broker.shared_worker`. It validates tenant
+context, session-affinity placement, quota decisions, tool allowlisting, and
+default-deny sandbox capabilities before returning a deterministic fake-tool
+result.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote
