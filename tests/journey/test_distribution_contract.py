@@ -531,11 +531,7 @@ def test_publish_everywhere_is_single_release_orchestrator() -> None:
     assert "PUBLIC_SURFACE_REQUIRE_NPM=1" in makefile
     assert "PUBLIC_SURFACE_REQUIRE_DOCKER=1" in makefile
     assert "PYPI_VERSION_URL" in makefile
-    assert "PyPI package already exists" in makefile
-    assert '$(NPM) view "$(NPM_PACKAGE_NAME)@$(PACKAGE_VERSION)" version' in makefile
-    assert "NPM package already exists" in makefile
     assert "MCP_REGISTRY_SEARCH_URL" in makefile
-    assert "MCP Registry metadata already exists" in makefile
     assert "HOMEBREW_TAP_TOKEN" in makefile
     assert "Homebrew formula already current" in makefile
     assert "--pypi-attempts \"$(HOMEBREW_PYPI_ATTEMPTS)\"" in makefile
@@ -595,14 +591,34 @@ def test_publish_everywhere_is_single_release_orchestrator() -> None:
         assert "Push `1.0.0` and semver aliases" not in distribution_plan
 
 
+def test_publish_everywhere_skips_only_after_registry_metadata_verification() -> None:
+    makefile = read_combined_makefiles(ROOT)
+    distribution = (ROOT / "docs" / "distribution.md").read_text(encoding="utf-8")
+
+    assert "scripts/release_idempotency.py" in makefile
+    assert "--surface pypi" in makefile
+    assert "--surface npm" in makefile
+    assert "--surface mcp-registry" in makefile
+    assert "digest mismatch" in makefile
+    assert "PyPI package already verified" in makefile
+    assert '$(NPM) view "$(NPM_PACKAGE_NAME)@$(PACKAGE_VERSION)" version' not in makefile
+    assert "NPM package already verified" in makefile
+    assert "MCP Registry metadata already verified" in makefile
+    assert "PyPI artifact digests" in distribution
+    assert "NPM package integrity" in distribution
+    assert "MCP Registry name/version" in distribution
+    assert "metadata" in distribution
+
+
 def test_public_export_includes_public_release_verifier_when_export_rules_exist() -> None:
     allowlist_path = ROOT / "public-export" / "allowlist.txt"
     if not allowlist_path.exists():
         return
 
-    assert "scripts/verify_public_release.py" in allowlist_path.read_text(
-        encoding="utf-8"
-    )
+    allowlist = allowlist_path.read_text(encoding="utf-8")
+
+    assert "scripts/release_idempotency.py" in allowlist
+    assert "scripts/verify_public_release.py" in allowlist
 
 
 def test_publish_everywhere_orchestration_is_sequenced_and_parallel() -> None:

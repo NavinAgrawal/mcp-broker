@@ -23,7 +23,9 @@ npm reports `${NPM_PACKAGE_NAME}@${PACKAGE_VERSION}` as `latest`. The 2026-06-27
 `${PACKAGE_VERSION}` fanout partly published registry surfaces, then failed
 before GitHub release creation. The required fix is a transaction-safe release
 path with per-registry preflight, idempotent reruns, live verification, and
-GitHub release recovery.
+GitHub release recovery. Idempotent reruns must skip a surface only after
+verifying registry metadata: PyPI artifact digests, NPM package integrity, MCP
+Registry name/version metadata, and Homebrew formula SHA.
 
 ## Phase 1: Plugin And Local Deployment Foundation
 
