@@ -112,7 +112,7 @@ quotas, worker isolation, distributed state, hybrid routing, and E2E proof.
 - [x] Add distributed deployment state with locking, conflict handling,
       rollback, recovery, and audit.
 - [x] Add hybrid routing between local edge tools and shared workers.
-- [ ] Add shared-runtime E2E proof for tenant isolation, authz denial, quota
+- [x] Add shared-runtime E2E proof for tenant isolation, authz denial, quota
       denial, session affinity, audit, rollback, and degraded mode.
 
 Phase 3 build order is threat model, remote API, state placement, quota control,

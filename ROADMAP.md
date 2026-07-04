@@ -20,7 +20,10 @@ This roadmap is product-facing. Private agent task history and local upstream in
 - Execute the foundation roadmap in `docs/phase-foundation-roadmap.md`: Phase 1
   plugin/local deployment contracts, Phase 2 governance contracts, and Phase 3
   shared-runtime guardrails. Phase 3 guardrails are defined in
-  `docs/shared-runtime-guardrails.md`.
+  `docs/shared-runtime-guardrails.md`, with P3.8 E2E proof covering tenant
+  isolation, authz denial, quota denial, session affinity, audit, rollback,
+  degraded mode, local-only routing, and shared-eligible routing while hosted
+  execution remains unsupported.
 - Keep package, Homebrew, MCP Registry, Docker, and MCPB metadata aligned for each release.
 - Publish Docker images after namespace, tag, SBOM, provenance, and catalog-review choices are confirmed.
 - Complete directory listings after account-level review: Docker MCP Catalog, Smithery, Glama, PulseMCP, and secondary MCP indexes.

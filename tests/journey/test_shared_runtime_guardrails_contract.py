@@ -27,6 +27,7 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "## Shared Worker Runtime",
         "## Distributed Deployment State",
         "## Hybrid Routing",
+        "## Full E2E Proof",
         "## Mandatory Non-Goals",
     ]
     required_terms = [
@@ -69,6 +70,9 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "local-only tools continue to route to the edge broker",
         "allowlisted stateless tools can route to shared workers only after quota approval",
         "shared-worker quota denial does not fall back to local edge execution",
+        "P3.8 E2E proof covers tenant isolation",
+        "shared-eligible routing",
+        "hosted_execution_supported: false",
         "local edge broker remains the default",
         "no remote listener",
         "no shared upstream execution",
@@ -99,4 +103,6 @@ def test_public_surfaces_link_shared_runtime_guardrails() -> None:
     assert required_link in readme
     assert required_link in roadmap
     assert required_link in phase_roadmap
+    assert "P3.8 E2E proof covers tenant isolation" in readme
+    assert "P3.8 E2E proof covering tenant" in roadmap
     assert "shared hosted execution is not implemented" in phase_roadmap

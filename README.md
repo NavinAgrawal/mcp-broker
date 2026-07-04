@@ -124,6 +124,8 @@ Implemented:
 - Profile validation from YAML smoke probes.
 - Discovery parity checks between compact client profiles.
 - Public and maintainer quality gates through Makefile targets.
+- Shared-runtime guardrail contracts through P3.8 E2E proof while hosted
+  execution remains disabled by default.
 
 Wiring status:
 
@@ -265,6 +267,10 @@ For a clone-to-running adoption flow, see
 [docs/adoption-guide.md#clone-to-running-path](docs/adoption-guide.md#clone-to-running-path).
 For shared-runtime boundaries, see
 [docs/shared-runtime-guardrails.md](docs/shared-runtime-guardrails.md).
+P3.8 E2E proof covers tenant isolation, authz denial, quota denial, session
+affinity, audit events, rollback, degraded mode, local-only routing, and
+shared-eligible routing. Hosted execution remains unsupported in the public
+local broker.
 
 ## Runtime layout
 
