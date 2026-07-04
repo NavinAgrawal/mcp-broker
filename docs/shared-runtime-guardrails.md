@@ -183,6 +183,31 @@ shared-runtime state under the runtime state directory, appends a rollback
 journal before recovery replay is needed, and fails closed on lock or revision
 conflicts.
 
+## Hybrid Routing
+
+Contract statement: hybrid routing preserves the existing tools/call client shape.
+Client-visible tool names and argument objects remain unchanged when a route is
+classified for local edge or shared-worker execution.
+
+Contract statement: local-only tools continue to route to the edge broker.
+Local-only includes stateful, browser, file-access, local-secret, OAuth,
+unknown, mutating, configured-state, env-backed, request-meta-backed, and
+session-env-backed upstreams.
+
+Contract statement: allowlisted stateless tools can route to shared workers only after quota approval.
+The current allowlist is config-derived from upstream tags and safety metadata:
+the upstream must be tagged stateless and shared-worker, use shared mode, avoid
+local state, and pass the supplied quota snapshot. The default route remains
+local edge when shared-runtime metadata is absent.
+
+Contract statement: shared-worker quota denial does not fall back to local edge execution.
+Quota denial is returned as an audited denial for the shared-worker attempt so a
+shared route cannot bypass quota by retrying locally.
+
+The code contract lives in `mcp_broker.hybrid_router`. The daemon delegates
+ordinary upstream calls through the hybrid router while preserving broker
+catalog tools and the local edge fallback.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote
