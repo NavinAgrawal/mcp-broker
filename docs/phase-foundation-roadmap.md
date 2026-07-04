@@ -10,10 +10,12 @@ operator notes, and maintainer task history stay out of this document.
 local YAML config, exposes one compact MCP server to clients, and routes calls to
 configured upstream MCP servers. That remains the default execution boundary.
 
-The next work adds contracts around that local runtime so the same repo can serve
-individual users, small teams, and larger enterprises. Shared runtime work is in
-scope for Phase 3, but local execution remains the default until the isolation,
-quota, audit, rollback, and E2E gates pass.
+The Phase 1, Phase 2, and Phase 3 local contracts are complete. The repo now
+has plugin/local deployment contracts, governance-control-plane contracts, and a
+local shared-runtime proof for tenant isolation, authz denial, quota denial,
+session affinity, audit events, rollback, degraded mode, local-only routing, and
+shared-eligible routing. Hosted execution is still not enabled. It remains a
+separate release decision.
 
 ## Release Reliability Blocker
 
