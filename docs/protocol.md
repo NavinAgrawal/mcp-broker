@@ -57,6 +57,23 @@ transport. `broker.remote_auth.required` must stay `true`, and
 `token_env` or `token_file`. A remote listener must not be added until it checks
 that policy before accepting requests.
 
+## Remote Broker API Contract
+
+The Phase 3 remote broker API is contract-only. It does not expose a network listener, does not start hosted workers, and does not call upstream tools.
+
+The current contract is:
+
+```yaml
+network_listener_supported: false
+```
+
+Future remote requests must carry `auth_context, tenant_context, and policy_decision`
+before they can be accepted. The request operations are tool discovery, describe, call, status, cancellation. Event contracts cover streaming chunks and audit events.
+
+The code contract lives in `mcp_broker.remote_api_contract`. It validates
+request and event payload shape only, so this protocol section does not change
+the local stdio client, Unix socket daemon, or upstream transport behavior.
+
 ## Upstream Transports
 
 Configured upstreams can use:

@@ -94,6 +94,27 @@ The code contract lives in `mcp_broker.shared_runtime_policy`. It defines the
 required isolation domains, validates tenant context, and returns placement
 decisions without starting hosted workers or changing runtime state.
 
+## Remote API Contract
+
+The P3 remote API contract defines authenticated tool discovery, describe, call, status, cancellation, streaming chunks, and audit events.
+It is a schema and validation contract only. The broker still has no remote
+listener, no shared upstream execution, and no hosted tool-call endpoint.
+
+The current contract remains:
+
+```yaml
+network_listener_supported: false
+```
+
+Every remote request must carry `auth_context, tenant_context, and policy_decision`
+before the request shape is accepted. Tool discovery, describe, call, status,
+and cancellation are the only request operations in the current contract.
+Streaming chunks and audit events are the only event types.
+
+The code contract lives in `mcp_broker.remote_api_contract`. It validates the
+remote request and event shapes without opening sockets, starting workers,
+calling upstream tools, or changing runtime state.
+
 ## Mandatory Non-Goals
 
 Phase 3 does not add hosted execution. It does not add remote tool calls, remote
