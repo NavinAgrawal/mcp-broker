@@ -25,6 +25,7 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "## Session Affinity And State Placement",
         "## Quota And Cost Controls",
         "## Shared Worker Runtime",
+        "## Distributed Deployment State",
         "## Mandatory Non-Goals",
     ]
     required_terms = [
@@ -59,6 +60,10 @@ def test_shared_runtime_guardrails_document_phase_3_gates() -> None:
         "network, file-access, secret, local-state, and inherited-environment access default to deny",
         "real upstream routing is not implemented",
         "unsupported shared-worker tools are denied with audit events",
+        "distributed deployment state uses a local deterministic adapter first",
+        "lock acquisition, stale lock recovery, active lock conflict rejection, rollback journal, recovery replay, and audit events",
+        "cloud storage is not implemented",
+        "state mutations require a matching lock token",
         "local edge broker remains the default",
         "no remote listener",
         "no shared upstream execution",
