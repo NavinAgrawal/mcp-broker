@@ -108,7 +108,7 @@ quotas, worker isolation, distributed state, hybrid routing, and E2E proof.
       call, status, cancellation, streaming, and audit.
 - [x] Add session affinity and state-placement rules.
 - [x] Add quota and cost-control engine.
-- [ ] Add isolated shared worker runtime for allowlisted stateless upstreams.
+- [x] Add isolated shared worker runtime for allowlisted stateless upstreams.
 - [ ] Add distributed deployment state with locking, conflict handling,
       rollback, recovery, and audit.
 - [ ] Add hybrid routing between local edge tools and shared workers.
