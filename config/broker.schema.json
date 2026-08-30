@@ -307,6 +307,9 @@
         "serialize_calls": {
           "type": "boolean"
         },
+        "strict_initialization": {
+          "type": "boolean"
+        },
         "inject_cwd_project": {
           "type": "boolean"
         },

@@ -2325,6 +2325,59 @@ def test_stdio_tools_list_initializes_before_first_roundtrip(
     assert calls == ["start", "initialize", "payload", "roundtrip", "result"]
 
 
+def test_stdio_tool_call_initializes_before_first_roundtrip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = StdioUpstreamProcess(
+        UpstreamConfig(name="fake", command=sys.executable, strict_initialization=True),
+        runtime_state_dir=tmp_path / "state",
+    )
+    fake_process = object()
+    client._process = cast(Any, fake_process)
+    calls: list[str] = []
+
+    monkeypatch.setattr(client, "_start", lambda: calls.append("start"))
+
+    def initialize(process: object, *, timeout_seconds: int) -> None:
+        assert process is fake_process
+        assert timeout_seconds == 11
+        calls.append("initialize")
+        client._initialized = True
+
+    def payload(method: str, params: dict[str, Any] | None) -> tuple[int, dict[str, Any]]:
+        assert method == "tools/call"
+        assert params == {"name": "js", "arguments": {"code": "1 + 1"}}
+        calls.append("payload")
+        return 42, {"jsonrpc": "2.0", "id": 42, "method": method, "params": params}
+
+    def roundtrip(
+        process: object,
+        request: dict[str, Any],
+        *,
+        timeout_seconds: int,
+        expected_id: int,
+    ) -> dict[str, Any]:
+        assert process is fake_process
+        assert timeout_seconds == 11
+        assert expected_id == 42
+        calls.append("roundtrip")
+        return {"jsonrpc": "2.0", "id": 42, "result": {"content": []}}
+
+    monkeypatch.setattr(client, "_initialize_upstream", initialize)
+    monkeypatch.setattr(client, "_jsonrpc_payload", payload)
+    monkeypatch.setattr(client, "_roundtrip", roundtrip)
+
+    result = client._jsonrpc_request_locked(
+        "tools/call",
+        {"name": "js", "arguments": {"code": "1 + 1"}},
+        timeout_seconds=11,
+    )
+
+    assert result == {"content": []}
+    assert calls == ["start", "initialize", "payload", "roundtrip"]
+
+
 def test_stdio_read_stdout_line_returns_buffered_line_without_select(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

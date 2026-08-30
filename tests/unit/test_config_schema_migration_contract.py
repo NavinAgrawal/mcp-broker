@@ -296,6 +296,7 @@ def test_schema_field_inventory_matches_migration_fixture() -> None:
         "upstreams.*.restart.backoff_seconds",
         "upstreams.*.restart.max_attempts",
         "upstreams.*.serialize_calls",
+        "upstreams.*.strict_initialization",
         "upstreams.*.smoke",
         "upstreams.*.smoke.arguments",
         "upstreams.*.smoke.call",

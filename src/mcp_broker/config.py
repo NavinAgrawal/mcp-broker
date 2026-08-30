@@ -202,6 +202,7 @@ class UpstreamConfig:
     profiles: tuple[str, ...] = ("manual-test",)
     mutating: bool = False
     serialize_calls: bool = False
+    strict_initialization: bool = False
     inject_cwd_project: bool = False
     inject_cwd_project_exclude: tuple[str, ...] = ()
     startup_timeout_seconds: int = 60
@@ -257,6 +258,10 @@ class UpstreamConfig:
             serialize_calls=_parse_bool(
                 f"upstreams.{name}.serialize_calls",
                 data.get("serialize_calls", False),
+            ),
+            strict_initialization=_parse_bool(
+                f"upstreams.{name}.strict_initialization",
+                data.get("strict_initialization", False),
             ),
             inject_cwd_project=_parse_bool(
                 f"upstreams.{name}.inject_cwd_project",
