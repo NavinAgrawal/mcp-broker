@@ -825,6 +825,7 @@ upstreams:
       NLMCP_AUTH_TOKEN: "{{runtime.secrets_dir}}/NLMCP_AUTH_TOKEN"
     request_meta:
       authToken: NLMCP_AUTH_TOKEN
+      x-codex-turn-metadata: NLMCP_AUTH_TOKEN
 """.strip(),
         encoding="utf-8",
     )
@@ -832,8 +833,14 @@ upstreams:
     config = BrokerConfig.from_file(config_file)
     upstream = config.upstreams["notebook"]
 
-    assert upstream.request_meta == {"authToken": "NLMCP_AUTH_TOKEN"}
-    assert upstream.resolve_request_meta({}) == {"authToken": "secret-token"}
+    assert upstream.request_meta == {
+        "authToken": "NLMCP_AUTH_TOKEN",
+        "x-codex-turn-metadata": "NLMCP_AUTH_TOKEN",
+    }
+    assert upstream.resolve_request_meta({}) == {
+        "authToken": "secret-token",
+        "x-codex-turn-metadata": "secret-token",
+    }
 
 
 def test_upstream_session_env_maps_client_context_to_child_environment(tmp_path: Path) -> None:

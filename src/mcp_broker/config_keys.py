@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+META_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]*$")
 SESSION_ENV_SOURCES = frozenset({"client_cwd"})
 SESSION_ENV_ALLOWED_MESSAGE = ", ".join(sorted(SESSION_ENV_SOURCES))
 

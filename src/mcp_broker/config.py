@@ -14,6 +14,7 @@ from mcp_broker.client_config import ClientRenderConfig
 from mcp_broker.config_keys import (
     BROKER_KEYS,
     ENV_NAME_PATTERN,
+    META_NAME_PATTERN,
     PROFILE_KEYS,
     REMOTE_AUTH_KEYS,
     RUNTIME_KEYS,
@@ -497,7 +498,7 @@ def _parse_request_meta(
         raise ValueError(f"{path} must be a mapping")
     parsed: dict[str, str] = {}
     for meta_name, source_name in value.items():
-        if not isinstance(meta_name, str) or not ENV_NAME_PATTERN.match(meta_name):
+        if not isinstance(meta_name, str) or not META_NAME_PATTERN.fullmatch(meta_name):
             raise ValueError(f"{path} keys must be request metadata names")
         if not isinstance(source_name, str) or not ENV_NAME_PATTERN.match(source_name):
             raise ValueError(f"{path}.{meta_name} must name a configured environment variable")
