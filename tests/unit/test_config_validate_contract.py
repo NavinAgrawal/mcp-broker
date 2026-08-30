@@ -35,6 +35,31 @@ def test_config_validate_accepts_public_example() -> None:
     assert result.ok is True
 
 
+def test_config_validate_accepts_transport_header_request_metadata(tmp_path: Path) -> None:
+    from mcp_broker.config_validate import validate_config_file
+
+    config_file = tmp_path / "broker.yaml"
+    config_file.write_text(
+        """
+schema_version: 1
+runtime:
+  root: /tmp/mcp-broker-test
+upstreams:
+  node-repl:
+    command: node
+    env:
+      CODEX_TURN_METADATA: present
+    request_meta:
+      x-codex-turn-metadata: CODEX_TURN_METADATA
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = validate_config_file(config_file, SCHEMA_FILE)
+
+    assert result.ok is True
+
+
 def test_config_validate_rejects_unknown_keys_before_runtime_load(tmp_path: Path) -> None:
     from mcp_broker.config_validate import ConfigValidationError, validate_config_file
 

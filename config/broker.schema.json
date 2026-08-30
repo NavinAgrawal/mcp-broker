@@ -299,7 +299,7 @@
           "$ref": "#/$defs/sessionEnvMap"
         },
         "request_meta": {
-          "$ref": "#/$defs/envMap"
+          "$ref": "#/$defs/requestMetaMap"
         },
         "mutating": {
           "type": "boolean"
@@ -468,6 +468,16 @@
       "additionalProperties": {
         "type": "string",
         "minLength": 1
+      }
+    },
+    "requestMetaMap": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
       }
     },
     "toolTimeouts": {
