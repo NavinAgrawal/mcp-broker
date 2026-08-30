@@ -171,6 +171,9 @@ upstreams:
     enabled: false
     mode: disabled
     transport: stdio
+    # Set true for strict MCP servers that exit when a tool request arrives
+    # before initialize and notifications/initialized.
+    strict_initialization: false
     purpose: Example npm stdio MCP server.
     tags:
       - example

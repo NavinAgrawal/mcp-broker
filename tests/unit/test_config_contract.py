@@ -34,6 +34,7 @@ upstreams:
     enabled: true
     state_dir: upstreams/read-store
     tool_prefix: read-store
+    strict_initialization: true
 """.strip(),
         encoding="utf-8",
     )
@@ -45,6 +46,7 @@ upstreams:
     assert config.broker.cpu_watchdog_percent == 80
     assert config.upstreams["read-store"].mode == "shared"
     assert config.upstreams["read-store"].tool_prefix == "read-store"
+    assert config.upstreams["read-store"].strict_initialization is True
 
 
 def test_broker_config_derives_runtime_child_paths_from_root(tmp_path: Path) -> None:

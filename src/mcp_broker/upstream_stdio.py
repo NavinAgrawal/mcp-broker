@@ -364,7 +364,9 @@ class StdioUpstreamProcess:
         self._start()
         process = self._process
         assert process is not None
-        if method == "tools/list" and not self._initialized:
+        if not self._initialized and (
+            method == "tools/list" or self.upstream.strict_initialization
+        ):
             self._initialize_upstream(process, timeout_seconds=timeout_seconds)
         request_id, payload = self._jsonrpc_payload(method, params)
         response = self._roundtrip(

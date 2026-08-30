@@ -59,6 +59,7 @@ UPSTREAM_KEYS = frozenset(
         "request_meta",
         "mutating",
         "serialize_calls",
+        "strict_initialization",
         "inject_cwd_project",
         "inject_cwd_project_exclude",
         "startup_timeout_seconds",
