@@ -50,6 +50,10 @@
       "runTests": ["tests/unit/test_daemon_jsonrpc_contract_part*.py", "tests/unit/test_daemon_tool_call_mutation_contract.py"]
     },
     {
+      "changed": "src/mcp_broker/profiles.py",
+      "runTests": ["tests/unit/test_profile_config_contract.py"]
+    },
+    {
       "changed": "registry/**",
       "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/unit/test_release_metadata_contract.py"]
     },

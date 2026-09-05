@@ -14,6 +14,7 @@ _BROKER_TOOL_NAMES = {
     "broker.describe_tool",
     "broker.call_tool",
     "broker.status",
+    "broker.close_session",
 }
 _BROKER_TOOL_SNAKE_ALIASES = {
     name.replace(".", "_"): name
