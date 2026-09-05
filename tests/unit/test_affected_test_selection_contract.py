@@ -106,6 +106,13 @@ def test_selector_maps_distribution_make_fragment_to_npm_contract() -> None:
     assert "tests/journey/test_npm_distribution_contract.py" in result.stdout.splitlines()
 
 
+def test_selector_maps_profiles_module_to_profile_config_contract() -> None:
+    result = _run_selector(ROOT, ["src/mcp_broker/profiles.py"])
+
+    assert result.returncode == 0
+    assert "tests/unit/test_profile_config_contract.py" in result.stdout.splitlines()
+
+
 def test_selector_maps_support_module_to_importing_tests_only(tmp_path: Path) -> None:
     (tmp_path / "tests/support").mkdir(parents=True)
     (tmp_path / "tests/unit").mkdir(parents=True)

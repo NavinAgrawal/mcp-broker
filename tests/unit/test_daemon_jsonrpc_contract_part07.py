@@ -69,6 +69,66 @@ def test_daemon_exposes_close_session_only_for_the_calling_broker_session(
     }
     assert set(daemon._stdio_upstreams) == {"shared", ("session", "codex-b")}
 
+
+def test_daemon_accepts_profile_safe_close_session_alias(tmp_path: Path) -> None:
+    from mcp_broker.config import BrokerSettings, RuntimeConfig, UpstreamConfig
+    from mcp_broker.daemon import BrokerDaemon
+    from mcp_broker.profiles import ToolExposureProfile
+
+    config = BrokerConfig(
+        runtime=RuntimeConfig(
+            root=tmp_path / "runtime",
+            socket_path=tmp_path / "broker.sock",
+            log_dir=tmp_path / "runtime" / "logs",
+            state_dir=tmp_path / "runtime" / "state",
+            secrets_dir=tmp_path / "runtime" / "secrets",
+        ),
+        broker=BrokerSettings(),
+        profiles={
+            "safe-client": ToolExposureProfile(
+                name="safe-client",
+                max_tools=80,
+                compact_tools_enabled=True,
+                broker_tool_name_style="snake",
+            )
+        },
+        upstreams={
+            "session": UpstreamConfig(
+                name="session",
+                command="session",
+                mode="per_session",
+                tool_prefix="session",
+                profiles=("safe-client",),
+            ),
+        },
+    )
+    daemon = BrokerDaemon(
+        runtime_root=config.runtime.root,
+        socket_path=config.runtime.socket_path,
+        broker_config=config,
+    )
+    daemon._stdio_upstreams[("session", "codex-a")] = CreatedClient(1)
+
+    response = daemon._handle_jsonrpc_request(
+        {
+            "jsonrpc": "2.0",
+            "id": "close-session",
+            "method": "tools/call",
+            "params": {
+                "profile": "safe-client",
+                "name": "broker_close_session",
+                "arguments": {},
+                "_meta": {"mcp_broker": {"session_id": "codex-a"}},
+            },
+        }
+    )
+
+    assert response["result"]["structuredContent"] == {
+        "stopped_upstreams": ["session:codex-a"],
+        "remaining_broker_processes": [],
+    }
+    assert daemon._stdio_upstreams == {}
+
 class RaisingClient:
     def __init__(self, exception: Exception) -> None:
         self.exception = exception
