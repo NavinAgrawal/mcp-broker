@@ -1,7 +1,9 @@
 from __future__ import annotations
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import pytest
 from tests.support.makefiles import (
     expand_make_value,
@@ -408,6 +410,72 @@ def test_publish_everywhere_defaults_to_local_auth_without_github_actions() -> N
     assert make_vars["PYPI_TRUSTED_PUBLISHING"] == "never"
     assert make_vars["NPM_PUBLISH_PROVENANCE_ARGS"] == ""
     assert make_vars["MCP_REGISTRY_LOGIN_METHOD"] == "github"
+
+
+def _run_auth_preflight(tmp_path: Path, *, token_lookup_fails: bool) -> tuple[subprocess.CompletedProcess[str], Path]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "publisher-capture.txt"
+    commands = {
+        "gh": """#!/bin/sh
+if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1" = "api" ]; then printf 'public\\n'; exit 0; fi
+if [ "$1 $2" = "auth token" ]; then
+  if [ "${FAKE_GH_TOKEN_FAIL:-0}" = "1" ]; then exit 1; fi
+  printf 'fake-github-token\\n'
+  exit 0
+fi
+exit 2
+""",
+        "git": "#!/bin/sh\nexit 0\n",
+        "npm": "#!/bin/sh\nexit 0\n",
+        "mcp-publisher": """#!/bin/sh
+env_state=missing
+if [ "${MCP_GITHUB_TOKEN:-}" = "fake-github-token" ]; then env_state=present; fi
+argv_state=clean
+for arg in "$@"; do
+  case "$arg" in *fake-github-token*) argv_state=leaked ;; esac
+done
+{
+  printf 'env=%s\\nargv=%s\\n' "$env_state" "$argv_state"
+  printf 'arg=%s\\n' "$@"
+} > "$AUTH_CAPTURE"
+""",
+    }
+    for name, body in commands.items():
+        executable = bin_dir / name
+        executable.write_text(body, encoding="utf-8")
+        executable.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["AUTH_CAPTURE"] = str(capture)
+    env["FAKE_GH_TOKEN_FAIL"] = "1" if token_lookup_fails else "0"
+    result = subprocess.run(
+        ["make", "--no-print-directory", "_publish-everywhere-auth-preflight"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, capture
+
+
+def test_local_mcp_registry_auth_passes_token_only_through_environment(tmp_path: Path) -> None:
+    result, capture = _run_auth_preflight(tmp_path, token_lookup_fails=False)
+
+    assert result.returncode == 0, result.stderr
+    assert capture.read_text(encoding="utf-8") == (
+        "env=present\nargv=clean\narg=login\narg=github\n"
+    )
+    assert "fake-github-token" not in result.stdout + result.stderr
+
+
+def test_local_mcp_registry_auth_stops_when_token_lookup_fails(tmp_path: Path) -> None:
+    result, capture = _run_auth_preflight(tmp_path, token_lookup_fails=True)
+
+    assert result.returncode != 0
+    assert not capture.exists()
 
 
 def test_docker_hub_token_stays_out_of_process_arguments() -> None:

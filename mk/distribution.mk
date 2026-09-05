@@ -392,7 +392,9 @@ _publish-everywhere-auth-preflight:
 	@tmpdir="$$(mktemp -d)"; \
 		trap 'rm -rf "$$tmpdir"' EXIT; \
 		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
-		(cd "$$tmpdir" && mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" >/dev/null)
+		registry_github_token="$$(gh auth token)" || { printf "\033[1;31m[ERROR]\033[0m gh auth token failed for MCP Registry preflight\n" >&2; exit 2; }; \
+		test -n "$$registry_github_token" || { printf "\033[1;31m[ERROR]\033[0m gh auth token returned empty for MCP Registry preflight\n" >&2; exit 2; }; \
+		(cd "$$tmpdir" && MCP_GITHUB_TOKEN="$$registry_github_token" mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" >/dev/null)
 	$(call log_success,"Publish-everywhere auth preflight passed")
 
 _publish-everywhere-docker-hub-public:
