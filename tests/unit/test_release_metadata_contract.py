@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
+from scripts import sync_release_metadata
 from scripts.sync_release_metadata import (
     _bump_version,
     _validate_version,
@@ -48,6 +51,33 @@ def test_emit_version_only_does_not_report_synchronization() -> None:
 
     assert result.stdout == "9.8.7\n"
     assert result.stderr == ""
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+@pytest.mark.error_simulation
+def test_json_metadata_sync_includes_codex_plugin_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = "9.8.7"
+    package = {"version": "1.2.3"}
+    registry_metadata = {"version": "1.2.3", "packages": [{"version": "1.2.3"}]}
+
+    _write_json(tmp_path / "npm" / "package.json", package)
+    _write_json(tmp_path / ".codex-plugin" / "plugin.json", package)
+    _write_json(tmp_path / "registry" / "server.json", registry_metadata)
+    _write_json(tmp_path / "registry" / "server.template.json", registry_metadata)
+    _write_json(tmp_path / "mcpb" / "manifest.json", package)
+    _write_json(tmp_path / ".well-known" / "mcp" / "server-card.json", {"packages": [{"version": "1.2.3"}]})
+    monkeypatch.setattr(sync_release_metadata, "ROOT", tmp_path)
+
+    updates = sync_release_metadata._json_metadata_updates(version)
+
+    assert updates[".codex-plugin/plugin.json"]["version"] == version
 
 
 def test_docker_catalog_version_sync_uses_standard_library_parser() -> None:

@@ -28,17 +28,23 @@ Required result:
   server-card, and changelog metadata.
 - Package metadata validates.
 - Release smoke passes.
-- Coverage, package checks, release smoke, and mutation run after the dependency
-  foundation is current. On macOS, the release gate uses the Linux container
-  mutation target.
+- Coverage, package checks, release smoke, and changed-source mutation run after
+  the dependency foundation is current. On macOS, the release gate uses the
+  Linux container mutation target.
 - `var/quality/mutation_stats.json` exists.
 - Mutation score is 100 and no mutants are `survived`, `no_tests`, `skipped`,
   `suspicious`, `timeout`, `check_was_interrupted_by_user`, `segfault`, or
   `not_checked`.
 - Directory submission, MCPB bundle, and Smithery payload metadata validate.
-- The one-shot publication workflow runs `make release RELEASE_APPLY=1`, which
+- The one-shot local publication target runs `make release RELEASE_APPLY=1`, which
   reuses the preflight and then publishes every registry surface through
   `publish-everywhere`.
+
+GitHub Actions stays disabled. Run publication locally. When mutation was run
+in source-and-test batches, retain a green receipt for every changed mutable
+source file and validate the current source hashes before reusing the batch
+evidence. Do not rerun the full mutation inventory after the batch union is
+green.
 
 Run the Linux release parity gate before triggering PyPI:
 

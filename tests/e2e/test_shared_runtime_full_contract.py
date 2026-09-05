@@ -83,3 +83,22 @@ def test_shared_runtime_e2e_proof_covers_all_phase_3_gates(tmp_path: Path) -> No
             "allowed",
         ],
     }
+
+
+@pytest.mark.error_simulation
+def test_shared_runtime_authorization_denial_requires_fail_closed_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mcp_broker.shared_runtime_e2e as shared_runtime_e2e
+
+    monkeypatch.setattr(shared_runtime_e2e, "validate_remote_request", lambda _request: {})
+
+    with pytest.raises(AssertionError, match="denied policy decision must fail closed"):
+        shared_runtime_e2e._authorization_denial()
+
+
+def test_shared_runtime_unexpected_edge_call_fails_shared_worker_routes() -> None:
+    from mcp_broker.shared_runtime_e2e import _unexpected_edge_call
+
+    with pytest.raises(AssertionError, match="shared-worker route must not call the edge broker"):
+        _unexpected_edge_call()

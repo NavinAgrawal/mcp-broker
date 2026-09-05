@@ -45,8 +45,36 @@ make mutation-linux
 ```
 
 `make release-gate` selects `mutation-linux` on Darwin and `mutation` on Linux.
-This avoids macOS fork-related mutmut failures while still using the same
-source tree, `setup.cfg`, and stats checker.
+It resolves affected Python source from the release diff and subtracts signed
+whole-file entries from `docs/mutation-carveouts.md`. This avoids macOS
+fork-related mutmut failures without mutating unrelated source.
+
+By default, `make mutation-linux` and the release-gate mutation child resolve
+the changed Python source files under the configured mutmut roots by diffing
+against `MUTATION_DIFF_BASE`:
+
+```bash
+MUTATION_DIFF_BASE=origin/main
+```
+
+That keeps interactive macOS runs scoped to the files touched by the current
+release train. To override the selector, pass an explicit list:
+
+```bash
+make mutation-linux MUTATION_PATHS_TO_MUTATE="src/mcp_broker/fleet_collection.py"
+```
+
+The Linux mutation wrapper rewrites `paths_to_mutate` only inside the disposable
+container workspace. The committed `setup.cfg` remains the full public mutation
+universe. The wrapper also copies `src` into the mutmut workspace so a narrowed
+mutation target can still import the complete package during stats collection
+and mutant execution.
+
+For a full repo burn, pass the full source root deliberately:
+
+```bash
+make mutation-linux MUTATION_PATHS_TO_MUTATE="src/mcp_broker"
+```
 
 Direct script runs follow the same macOS guard:
 
@@ -56,11 +84,11 @@ scripts/linux-mutation.sh
 
 When `MCP_BROKER_MUTATION_MAX_CHILDREN` is unset, the script uses one child on
 macOS and four elsewhere. The host-side Docker run uses background QoS on
-macOS.
+macOS and still goes through the global command governor; if load is over the
+interactive mutation threshold, wait instead of bypassing the guard.
 
-The target runs mutmut against `src/mcp_broker` using public unit and journey
-tests, then reads
-the generated `mutants/**/*.meta` files with
+The target runs mutmut against the selected mutation paths using public unit and
+journey tests, then reads the generated `mutants/**/*.meta` files with
 `scripts/check_mutation_stats.py`.
 The mutmut config copies the public docs, config, registry metadata, packaging
 assets, workflow files, scripts, `Makefile`, and root public docs into the

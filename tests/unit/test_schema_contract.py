@@ -80,6 +80,34 @@ def test_schema_resource_policy_accepts_cpu_watchdog_bounds() -> None:
     )
 
 
+@pytest.mark.parametrize("value", [0, 301])
+def test_schema_health_policy_rejects_call_timeout_outside_bounds(value: int) -> None:
+    from mcp_broker.schema import HealthPolicy
+
+    with pytest.raises(
+        ValueError,
+        match="upstreams.docs.health.call_timeout_seconds must be between 1 and 300",
+    ):
+        HealthPolicy.from_mapping(
+            "upstreams.docs.health",
+            {"call_timeout_seconds": value},
+        )
+
+
+@pytest.mark.parametrize("value", [True, 1.5, "60"])
+def test_schema_health_policy_rejects_non_integer_call_timeout(value: object) -> None:
+    from mcp_broker.schema import HealthPolicy
+
+    with pytest.raises(
+        ValueError,
+        match="upstreams.docs.health.call_timeout_seconds must be between 1 and 300",
+    ):
+        HealthPolicy.from_mapping(
+            "upstreams.docs.health",
+            {"call_timeout_seconds": value},
+        )
+
+
 @pytest.mark.parametrize("value", [0, 101])
 def test_schema_resource_policy_rejects_cpu_watchdog_outside_bounds(value: int) -> None:
     from mcp_broker.schema import ResourcePolicy

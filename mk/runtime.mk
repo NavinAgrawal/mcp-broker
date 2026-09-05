@@ -1,4 +1,4 @@
-.PHONY: runtime-layout doctor broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollback governance-rollout-control governance-approve governance-reference-control-plane fleet-status-collect break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
+.PHONY: runtime-layout doctor runtime-sync-check migrate-runtime-config broker-secrets-sync broker-start broker-stop broker-status broker-wait broker-reap broker-smoke tools-count facade-smoke codex-facade-smoke claude-facade-smoke agy-facade-smoke profile-validation codex-profile-validation claude-profile-validation agy-profile-validation discovery-parity codex-claude-discovery-parity codex-deferred-acceptance secret-import-env deployment-stage deployment-rollback deployment-recover governance-pull governance-apply governance-rollout-control governance-approve governance-reference-control-plane fleet-status-collect break-glass-create break-glass-status service-plan launchagent-install launchagent-load launchagent-uninstall launchagent-unload systemd-install systemd-load systemd-uninstall systemd-unload windows-install windows-load windows-unload linux-container-smoke linux-release-gate windows-powershell-smoke config-backup config-render codex-app-policy project-mcp-audit project-mcp-migrate config-rollback profile-snippet
 
 runtime-layout: ## Create configured runtime directories
 	$(call log_step,"Runtime layout")
@@ -8,6 +8,24 @@ doctor: deps runtime-layout broker-reap ## Verify runtime directories and report
 	@test -f "$(CONFIG_PATH)" || { $(call log_error,"Missing CONFIG_PATH=$(CONFIG_PATH)"); exit 1; }
 	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m mcp_broker.doctor --config "$(CONFIG_PATH)"
 	$(call log_success,"Runtime layout ready at $(RUNTIME_ROOT)")
+
+runtime-sync-check: ## Verify LaunchAgent runtime, config, and working-directory authority
+	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) "$(ROOT)/scripts/runtime-sync-check.py" \
+		--plist "$(LAUNCHAGENT_PLIST)" \
+		--runtime-root "$(RUNTIME_ROOT)" \
+		--config "$(CONFIG_PATH)" \
+		--working-directory "$(RUNTIME_SYNC_WORKING_DIRECTORY)"
+
+migrate-runtime-config: ## Plan migration; set RUNTIME_CONFIG_MIGRATION_APPLY=1 to copy
+	@if [[ "$(RUNTIME_CONFIG_MIGRATION_APPLY)" == "1" ]]; then \
+		APPLY_ARG="--apply"; \
+	else \
+		APPLY_ARG=""; \
+	fi; \
+	PYTHONPATH="$(PYTHONPATH)" $(PYTHON) "$(ROOT)/scripts/migrate-runtime-config.py" \
+		--source "$(RUNTIME_CONFIG_MIGRATION_SOURCE)" \
+		--destination "$(CONFIG_PATH)" \
+		$$APPLY_ARG
 
 broker-secrets-sync: runtime-layout ## Import every store-managed upstream secret from the current environment
 	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m mcp_broker.secrets_sync --config "$(CONFIG_PATH)"

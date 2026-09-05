@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import uuid
 from pathlib import Path
@@ -8,7 +9,12 @@ import pytest
 
 pytestmark = pytest.mark.live
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG_FILE = ROOT / "config" / "broker.private.yaml"
+CONFIG_FILE = Path(
+    os.environ.get(
+        "MCP_BROKER_LIVE_CONFIG_PATH",
+        str(ROOT / "config" / "broker.private.yaml"),
+    )
+).expanduser()
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -93,6 +99,7 @@ def test_broker_compacts_yaml_configured_profiles(tmp_path: Path) -> None:
                 profile.exposed_broker_tool_name("broker.describe_tool"),
                 profile.exposed_broker_tool_name("broker.call_tool"),
                 profile.exposed_broker_tool_name("broker.status"),
+                profile.exposed_broker_tool_name("broker.close_session"),
             ], profile.name
         _request(socket_path, {"method": "broker/stop", "id": "stop-compact"})
         daemon.join(timeout=2)
@@ -151,7 +158,7 @@ def _exercise_configured_upstream(
         prefix = upstream.tool_prefix or upstream.name
         separator = config.broker.tool_namespace_separator
         assert all(name.startswith(f"{prefix}{separator}") for name in tool_names), upstream_name
-        if upstream.smoke is not None:
+        if upstream.smoke is not None and upstream.smoke.call:
             smoke_response = _request(
                 socket_path,
                 {

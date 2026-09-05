@@ -1,5 +1,8 @@
 import json
 from pathlib import Path
+import runpy
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +12,7 @@ from mcp_broker.service_templates import (
     WINDOWS_TASK_NAME,
     ServiceTemplateError,
     build_service_plan,
+    main,
 )
 
 
@@ -106,3 +110,152 @@ def test_service_plan_rejects_empty_daemon_command(tmp_path: Path) -> None:
             daemon_command=" ",
             home_dir=tmp_path / "home",
         )
+
+
+def test_service_plan_rejects_malformed_daemon_command(tmp_path: Path) -> None:
+    with pytest.raises(ServiceTemplateError, match="invalid daemon command"):
+        build_service_plan(
+            platform="linux",
+            runtime_root=tmp_path / "runtime",
+            socket_path=tmp_path / "runtime" / "sockets" / "broker.sock",
+            config_path=tmp_path / "runtime" / "config" / "broker.yaml",
+            daemon_command="'unterminated",
+            home_dir=tmp_path / "home",
+        )
+
+
+def test_service_template_cli_writes_plan_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(
+        [
+            "--platform",
+            "linux",
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+            "--socket-path",
+            str(tmp_path / "runtime" / "sockets" / "broker.sock"),
+            "--config",
+            str(tmp_path / "runtime" / "config" / "broker.yaml"),
+            "--daemon-command",
+            "mcp-broker-daemon",
+            "--home-dir",
+            str(tmp_path / "home"),
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["platform"] == "linux"
+    assert payload["service_manager"] == "systemd-user"
+    assert payload["service_name"] == SYSTEMD_SERVICE_NAME
+
+
+def test_service_template_cli_parser_and_json_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import mcp_broker.service_templates as service_templates
+
+    class ParserSpy:
+        description: str | None = None
+        arguments: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+        def __init__(self, *, description: str) -> None:
+            type(self).description = description
+            type(self).arguments = []
+
+        def add_argument(self, *args: object, **kwargs: object) -> None:
+            type(self).arguments.append((args, kwargs))
+
+        def parse_args(self, argv: object) -> SimpleNamespace:
+            assert argv == ["ignored"]
+            return SimpleNamespace(
+                platform="linux",
+                runtime_root=Path("runtime"),
+                socket_path=Path("broker.sock"),
+                config=Path("broker.yaml"),
+                daemon_command="mcp-broker-daemon",
+                home_dir=Path("home"),
+            )
+
+    monkeypatch.setattr(service_templates.argparse, "ArgumentParser", ParserSpy)
+    monkeypatch.setattr(
+        service_templates,
+        "build_service_plan",
+        lambda **_kwargs: {"z": 1, "a": 2},
+    )
+
+    assert service_templates.main(["ignored"]) == 0
+    assert ParserSpy.description == "Render a dry-run service manager plan"
+    assert ParserSpy.arguments == [
+        (("--platform",), {"required": True}),
+        (("--runtime-root",), {"required": True, "type": Path}),
+        (("--socket-path",), {"required": True, "type": Path}),
+        (("--config",), {"required": True, "type": Path}),
+        (("--daemon-command",), {"required": True}),
+        (("--home-dir",), {"required": True, "type": Path}),
+    ]
+    assert capsys.readouterr().out == '{"a": 2, "z": 1}\n'
+
+
+def test_service_template_cli_reports_plan_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(
+        [
+            "--platform",
+            "solaris",
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+            "--socket-path",
+            str(tmp_path / "runtime" / "sockets" / "broker.sock"),
+            "--config",
+            str(tmp_path / "runtime" / "config" / "broker.yaml"),
+            "--daemon-command",
+            "mcp-broker-daemon",
+            "--home-dir",
+            str(tmp_path / "home"),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.out == ""
+    assert "unsupported service platform" in captured.err
+
+
+@pytest.mark.error_simulation
+def test_service_template_module_entrypoint_exits_with_main_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "service_templates",
+            "--platform",
+            "linux",
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+            "--socket-path",
+            str(tmp_path / "runtime" / "sockets" / "broker.sock"),
+            "--config",
+            str(tmp_path / "runtime" / "config" / "broker.yaml"),
+            "--daemon-command",
+            "mcp-broker-daemon",
+            "--home-dir",
+            str(tmp_path / "home"),
+        ],
+    )
+
+    module_name = "mcp_broker.service_templates"
+    previous_module = sys.modules.pop(module_name, None)
+
+    try:
+        with pytest.raises(SystemExit) as exit_info:
+            runpy.run_module(module_name, run_name="__main__")
+    finally:
+        if previous_module is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous_module
+
+    assert exit_info.value.code == 0

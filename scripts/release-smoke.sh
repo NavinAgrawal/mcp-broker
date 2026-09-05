@@ -18,6 +18,7 @@ Creates a clean tree and runs the setup path:
 Environment:
   MCP_BROKER_RELEASE_SMOKE_DIR    Optional existing work directory
   MCP_BROKER_RELEASE_SMOKE_KEEP   Set to 1 to keep the temporary directory
+  MAKE_BIN                         Optional make binary override
   PYTHON_BIN                      Python used to run the private export helper
 USAGE
 }
@@ -51,11 +52,25 @@ CLONE_DIR="$WORK_DIR/source"
 RUNTIME_ROOT="$WORK_DIR/runtime"
 HOME_DIR="$WORK_DIR/home"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+MAKE_BIN="${MAKE_BIN:-}"
 SOURCE_LIST_PATH="$WORK_DIR/source-files.txt"
 
 mkdir -p "$CLONE_DIR" "$RUNTIME_ROOT" "$HOME_DIR"
 XDG_CONFIG_HOME_DIR="$HOME_DIR/.config"
 mkdir -p "$XDG_CONFIG_HOME_DIR"
+
+if [[ -z "$MAKE_BIN" ]]; then
+  for candidate in /opt/homebrew/bin/gmake /usr/local/bin/gmake /usr/bin/make; do
+    if [[ -x "$candidate" ]]; then
+      MAKE_BIN="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "$MAKE_BIN" || ! -x "$MAKE_BIN" ]]; then
+  printf "release-smoke could not find an executable make binary\n" >&2
+  exit 2
+fi
 
 if [[ -f "$ROOT/scripts/public-export.py" && -f "$ROOT/public-export/allowlist.txt" ]]; then
   "$PYTHON_BIN" "$ROOT/scripts/public-export.py" \
@@ -74,10 +89,10 @@ else
   ) | tar -C "$CLONE_DIR" -xf -
 fi
 
-(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" make config-init RUNTIME_ROOT="$RUNTIME_ROOT")
-(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" make setup RUNTIME_ROOT="$RUNTIME_ROOT")
-(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" make config-validate RUNTIME_ROOT="$RUNTIME_ROOT")
-(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" make broker-smoke RUNTIME_ROOT="$RUNTIME_ROOT")
+(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" "$MAKE_BIN" config-init RUNTIME_ROOT="$RUNTIME_ROOT")
+(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" "$MAKE_BIN" setup RUNTIME_ROOT="$RUNTIME_ROOT")
+(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" "$MAKE_BIN" config-validate RUNTIME_ROOT="$RUNTIME_ROOT")
+(cd "$CLONE_DIR" && HOME="$HOME_DIR" XDG_CONFIG_HOME="$XDG_CONFIG_HOME_DIR" "$MAKE_BIN" broker-smoke RUNTIME_ROOT="$RUNTIME_ROOT")
 
 PRIVATE_PATH_MARKER="/""Users/"
 if grep -R "$PRIVATE_PATH_MARKER" "$CLONE_DIR/README.md" "$CLONE_DIR/docs" "$CLONE_DIR/config" "$CLONE_DIR/scripts" >/dev/null 2>&1; then

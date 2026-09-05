@@ -5,6 +5,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -33,6 +34,159 @@ def test_broker_daemon_creates_socket_and_answers_health(tmp_path: Path) -> None
         assert response["result"]["socket_path"] == str(socket_path)
     finally:
         daemon.stop()
+
+
+def test_broker_daemon_accepts_attachment_sized_request_over_live_socket(tmp_path: Path) -> None:
+    from mcp_broker.daemon import BrokerDaemon
+
+    runtime_root = tmp_path / "runtime"
+    socket_path = _socket_path(tmp_path)
+    daemon = BrokerDaemon(runtime_root=runtime_root, socket_path=socket_path)
+
+    daemon.start()
+    try:
+        response = _request(
+            socket_path,
+            {
+                "method": "broker/health",
+                "id": "attachment-sized-live",
+                "attachment_probe": "x" * 818_504,
+            },
+        )
+    finally:
+        daemon.stop()
+
+    assert response["id"] == "attachment-sized-live"
+    assert response["result"]["status"] == "ok"
+
+
+def test_broker_daemon_survives_client_disconnect_before_response(tmp_path: Path) -> None:
+    from mcp_broker.daemon import BrokerDaemon
+
+    request_started = threading.Event()
+    release_response = threading.Event()
+
+    class BlockingDaemon(BrokerDaemon):
+        def _handle_request(self, request: dict[str, object]) -> dict[str, object] | None:
+            if request.get("id") == "disconnect-before-response":
+                request_started.set()
+                release_response.wait(timeout=2)
+            return super()._handle_request(request)
+
+    runtime_root = tmp_path / "runtime"
+    socket_path = _socket_path(tmp_path)
+    daemon = BlockingDaemon(runtime_root=runtime_root, socket_path=socket_path)
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    daemon.start()
+    try:
+        client.connect(str(socket_path))
+        client.sendall(
+            b'{"jsonrpc":"2.0","id":"disconnect-before-response","method":"broker/health"}\n'
+        )
+        assert request_started.wait(timeout=1)
+        client.close()
+        release_response.set()
+
+        response = _request(socket_path, {"method": "broker/health", "id": "after-disconnect"})
+    finally:
+        release_response.set()
+        client.close()
+        daemon.stop()
+
+    assert response["id"] == "after-disconnect"
+    assert response["result"]["status"] == "ok"
+
+
+def test_broker_daemon_closes_stalled_live_socket_after_configured_timeout(
+    tmp_path: Path,
+) -> None:
+    from mcp_broker.config import BrokerConfig, BrokerSettings, RuntimeConfig
+    from mcp_broker.daemon import BrokerDaemon
+
+    runtime_root = tmp_path / "runtime"
+    socket_path = _socket_path(tmp_path)
+    config = BrokerConfig(
+        runtime=RuntimeConfig(
+            root=runtime_root,
+            socket_path=socket_path,
+            log_dir=runtime_root / "logs",
+            state_dir=runtime_root / "state",
+            secrets_dir=runtime_root / "secrets",
+        ),
+        broker=BrokerSettings(socket_read_timeout_seconds=1),
+        upstreams={},
+    )
+    daemon = BrokerDaemon(
+        runtime_root=runtime_root,
+        socket_path=socket_path,
+        broker_config=config,
+    )
+
+    daemon.start()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stalled_client:
+            stalled_client.settimeout(3)
+            stalled_client.connect(str(socket_path))
+            assert stalled_client.recv(1) == b""
+        response = _request(socket_path, {"method": "broker/health", "id": "after-timeout"})
+    finally:
+        daemon.stop()
+
+    assert response["id"] == "after-timeout"
+    assert response["result"]["status"] == "ok"
+
+
+def test_broker_daemon_rejects_over_limit_live_socket_request_and_stays_healthy(
+    tmp_path: Path,
+) -> None:
+    from mcp_broker.config import BrokerConfig, BrokerSettings, RuntimeConfig
+    from mcp_broker.daemon import BrokerDaemon
+
+    runtime_root = tmp_path / "runtime"
+    socket_path = _socket_path(tmp_path)
+    max_request_bytes = 128
+    config = BrokerConfig(
+        runtime=RuntimeConfig(
+            root=runtime_root,
+            socket_path=socket_path,
+            log_dir=runtime_root / "logs",
+            state_dir=runtime_root / "state",
+            secrets_dir=runtime_root / "secrets",
+        ),
+        broker=BrokerSettings(socket_max_request_bytes=max_request_bytes),
+        upstreams={},
+    )
+    daemon = BrokerDaemon(
+        runtime_root=runtime_root,
+        socket_path=socket_path,
+        broker_config=config,
+    )
+
+    daemon.start()
+    try:
+        rejected = _request(
+            socket_path,
+            {
+                "method": "broker/health",
+                "id": "over-limit",
+                "attachment_probe": "x" * max_request_bytes,
+            },
+        )
+        response = _request(socket_path, {"method": "broker/health", "id": "after-limit"})
+    finally:
+        daemon.stop()
+
+    assert rejected == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {
+            "code": -32600,
+            "message": f"Request exceeds {max_request_bytes} bytes",
+        },
+    }
+    assert response["id"] == "after-limit"
+    assert response["result"]["status"] == "ok"
 
 
 def test_broker_daemon_writes_structured_jsonl_lifecycle_logs(tmp_path: Path) -> None:

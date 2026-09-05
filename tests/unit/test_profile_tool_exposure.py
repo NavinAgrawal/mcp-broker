@@ -82,6 +82,7 @@ def test_profile_tool_exposure_enforces_budget_and_can_return_compact_broker_too
         "broker.describe_tool",
         "broker.call_tool",
         "broker.status",
+        "broker.close_session",
     ]
 
 

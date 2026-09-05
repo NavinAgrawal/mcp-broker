@@ -51,6 +51,15 @@ def test_local_only_upstream_classes_bind_state_to_local_session(
     assert decision["session_affinity"] == "local_client_session"
     assert decision["state_binding"] == "local_edge_session"
     assert decision["shared_worker_eligible"] is False
+    assert set(decision) == {
+        "upstream_class",
+        "execution_boundary",
+        "session_affinity",
+        "state_binding",
+        "shared_worker_eligible",
+        "reason",
+        "state_scope",
+    }
     assert decision["state_scope"] == {
         "session": "local_client_session",
         "upstream_id": "example-upstream",
@@ -68,15 +77,19 @@ def test_allowlisted_stateless_without_local_state_can_bind_to_shared_worker() -
         tenant_context=TENANT_CONTEXT,
     )
 
-    assert decision["execution_boundary"] == "shared_worker"
-    assert decision["session_affinity"] == "tenant_workspace_user"
-    assert decision["state_binding"] == "shared_worker_scope"
-    assert decision["shared_worker_eligible"] is True
-    assert decision["state_scope"] == {
-        "tenant_id": "tenant-a",
-        "workspace_id": "workspace-a",
-        "user_id": "user-a",
-        "upstream_id": "example-search",
+    assert decision == {
+        "upstream_class": "stateless",
+        "execution_boundary": "shared_worker",
+        "session_affinity": "tenant_workspace_user",
+        "state_binding": "shared_worker_scope",
+        "shared_worker_eligible": True,
+        "reason": "allowlisted_stateless_upstream",
+        "state_scope": {
+            "tenant_id": "tenant-a",
+            "workspace_id": "workspace-a",
+            "user_id": "user-a",
+            "upstream_id": "example-search",
+        },
     }
 
 
@@ -110,7 +123,10 @@ def test_forbidden_private_inventory_class_fails_closed() -> None:
         decide_session_affinity,
     )
 
-    with pytest.raises(SessionAffinityError, match="upstream class is forbidden"):
+    with pytest.raises(
+        SessionAffinityError,
+        match=r"^upstream class is forbidden$",
+    ):
         decide_session_affinity(
             upstream_class="private_inventory",
             upstream_id="example-upstream",
@@ -133,6 +149,77 @@ def test_shared_worker_state_binding_rejects_missing_tenant_context() -> None:
             allowlisted=True,
             requires_local_state=False,
             tenant_context={
+                "workspace_id": "workspace-a",
+                "user_id": "user-a",
+            },
+        )
+
+
+def test_blank_upstream_class_normalizes_to_unknown_local_boundary() -> None:
+    from mcp_broker.session_affinity import decide_session_affinity
+
+    decision = decide_session_affinity(
+        upstream_class=" ",
+        upstream_id="example-upstream",
+        allowlisted=True,
+        requires_local_state=False,
+        tenant_context=TENANT_CONTEXT,
+    )
+
+    assert decision["upstream_class"] == "unknown"
+    assert decision["execution_boundary"] == "local_edge"
+    assert decision["shared_worker_eligible"] is False
+
+
+def test_unrecognized_upstream_class_normalizes_to_unknown_local_boundary() -> None:
+    from mcp_broker.session_affinity import decide_session_affinity
+
+    decision = decide_session_affinity(
+        upstream_class="custom-class",
+        upstream_id="example-upstream",
+        allowlisted=True,
+        requires_local_state=False,
+        tenant_context=TENANT_CONTEXT,
+    )
+
+    assert decision["upstream_class"] == "unknown"
+    assert decision["execution_boundary"] == "local_edge"
+
+
+@pytest.mark.parametrize("upstream_id", ["", " ", "tenant/upstream", r"tenant\\upstream"])
+def test_session_affinity_rejects_invalid_upstream_id(upstream_id: str) -> None:
+    from mcp_broker.session_affinity import (
+        SessionAffinityError,
+        decide_session_affinity,
+    )
+
+    with pytest.raises(
+        SessionAffinityError,
+        match=r"^upstream_id (?:is required|must not contain path separators)$",
+    ):
+        decide_session_affinity(
+            upstream_class="stateful",
+            upstream_id=upstream_id,
+            allowlisted=False,
+            requires_local_state=True,
+            tenant_context=TENANT_CONTEXT,
+        )
+
+
+def test_shared_worker_state_binding_rejects_tenant_context_path_separator() -> None:
+    from mcp_broker.session_affinity import (
+        SessionAffinityError,
+        decide_session_affinity,
+    )
+
+    with pytest.raises(SessionAffinityError, match="path separators"):
+        decide_session_affinity(
+            upstream_class="stateless",
+            upstream_id="example-search",
+            allowlisted=True,
+            requires_local_state=False,
+            tenant_context={
+                "tenant_id": "tenant/a",
                 "workspace_id": "workspace-a",
                 "user_id": "user-a",
             },

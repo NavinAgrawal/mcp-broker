@@ -121,6 +121,48 @@ def test_rollout_simulator_rejects_incompatible_broker() -> None:
     }
 
 
+def test_rollout_simulator_rejects_schema_below_minimum() -> None:
+    from mcp_broker.rollout_simulator import simulate_rollout
+
+    result = simulate_rollout(
+        bundle=_bundle(),
+        fleet_statuses=[_fleet_status("broker-a", schema_version=0)],
+        approval_granted=True,
+    )
+
+    assert result["reasons"] == [
+        "broker-a config schema version 0 outside supported range 1..1"
+    ]
+
+
+def test_rollout_simulator_rejects_untargeted_environment_and_broker() -> None:
+    from mcp_broker.rollout_simulator import simulate_rollout
+
+    result = simulate_rollout(
+        bundle=_bundle(),
+        fleet_statuses=[
+            {
+                **_fleet_status("broker-z"),
+                "identity": {
+                    **_fleet_status("broker-z")["identity"],
+                    "environment": "prod",
+                },
+            }
+        ],
+        approval_granted=True,
+    )
+
+    assert result == {
+        "mode": "local_simulation_only",
+        "state": "compatibility_rejection",
+        "decisions": [],
+        "reasons": [
+            "broker-z environment 'prod' is not targeted",
+            "broker-z is not targeted",
+        ],
+    }
+
+
 def test_rollout_simulator_requests_rollback_on_unhealthy_broker() -> None:
     from mcp_broker.rollout_simulator import simulate_rollout
 
@@ -137,6 +179,64 @@ def test_rollout_simulator_requests_rollback_on_unhealthy_broker() -> None:
             {"broker_id": "broker-a", "stage": "canary", "state": "rollback"}
         ],
         "reasons": ["broker-a health status degraded triggers rollback"],
+    }
+
+
+def test_rollout_simulator_rollback_uses_unassigned_stage_for_unlisted_broker() -> None:
+    from mcp_broker.rollout_simulator import simulate_rollout
+
+    bundle = _bundle()
+    bundle["applies_to"]["broker_ids"].append("broker-d")
+
+    result = simulate_rollout(
+        bundle=bundle,
+        fleet_statuses=[_fleet_status("broker-d", status="failed")],
+        approval_granted=True,
+    )
+
+    assert result["state"] == "rollback"
+    assert result["decisions"] == [
+        {"broker_id": "broker-d", "stage": "unassigned", "state": "rollback"}
+    ]
+
+
+def test_rollout_simulator_uses_default_stage_name_for_malformed_stage() -> None:
+    from mcp_broker.rollout_simulator import simulate_rollout
+
+    bundle = _bundle()
+    bundle["rollout"]["stages"] = [{"broker_ids": ["broker-a"]}]
+
+    result = simulate_rollout(
+        bundle=bundle,
+        fleet_statuses=[_fleet_status("broker-a")],
+        approval_granted=True,
+    )
+
+    assert result["decisions"] == [
+        {"broker_id": "broker-a", "stage": "staged", "state": "staged_rollout"}
+    ]
+
+
+def test_rollout_simulator_rolls_back_unknown_health_with_default_stage() -> None:
+    from mcp_broker.rollout_simulator import simulate_rollout
+
+    bundle = _bundle()
+    bundle["rollout"]["rollback_on_statuses"].append("unknown")
+    bundle["rollout"]["stages"] = [{"broker_ids": ["broker-a"]}]
+    fleet_status = _fleet_status("broker-a")
+    fleet_status.pop("health")
+
+    assert simulate_rollout(
+        bundle=bundle,
+        fleet_statuses=[fleet_status],
+        approval_granted=True,
+    ) == {
+        "mode": "local_simulation_only",
+        "state": "rollback",
+        "decisions": [
+            {"broker_id": "broker-a", "stage": "staged", "state": "rollback"}
+        ],
+        "reasons": ["broker-a health status unknown triggers rollback"],
     }
 
 
@@ -169,3 +269,83 @@ def test_rollout_simulator_cli_outputs_local_simulation_json(
     assert payload["decisions"] == [
         {"broker_id": "broker-a", "stage": "canary", "state": "canary"}
     ]
+
+
+def test_rollout_simulator_direct_cli_accepts_single_fleet_status_object(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from mcp_broker.rollout_simulator import main
+
+    bundle_path = tmp_path / "bundle.json"
+    fleet_path = tmp_path / "fleet.json"
+    bundle_path.write_text(json.dumps(_bundle()), encoding="utf-8")
+    fleet_path.write_text(json.dumps(_fleet_status("broker-a")), encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--bundle",
+                str(bundle_path),
+                "--fleet-status",
+                str(fleet_path),
+                "--approved",
+            ]
+        )
+        == 0
+    )
+
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+    assert payload["decisions"] == [
+        {"broker_id": "broker-a", "stage": "canary", "state": "canary"}
+    ]
+    assert stdout == json.dumps(payload, sort_keys=True) + "\n"
+
+
+def test_rollout_simulator_parser_has_exact_public_contract() -> None:
+    from mcp_broker.rollout_simulator import _parser
+
+    parser = _parser()
+    assert parser.description == "Simulate a local governance rollout"
+    actions = {action.dest: action for action in parser._actions}
+    assert set(actions) == {"help", "bundle", "fleet_status", "approved"}
+    assert actions["bundle"].required is True
+    assert actions["bundle"].type is Path
+    assert actions["fleet_status"].required is True
+    assert actions["fleet_status"].type is Path
+    assert actions["approved"].const is True
+    assert actions["approved"].default is False
+
+
+def test_rollout_simulator_loads_utf8_json_bytes(tmp_path: Path) -> None:
+    from mcp_broker.rollout_simulator import _load_fleet_statuses
+
+    fleet_path = tmp_path / "fleet.json"
+    fleet_path.write_bytes(json.dumps({"label": "caf\u00e9"}, ensure_ascii=False).encode())
+
+    assert _load_fleet_statuses(fleet_path) == [{"label": "caf\u00e9"}]
+
+
+@pytest.mark.parametrize(
+    ("identity", "expected"),
+    [
+        ({"broker_id": "broker-a"}, "broker-a"),
+        ({"broker_id": 7}, "unknown"),
+        ({"broker_id": ""}, "unknown"),
+        ({}, "unknown"),
+    ],
+)
+def test_rollout_simulator_broker_id_contract(
+    identity: dict[str, object],
+    expected: str,
+) -> None:
+    from mcp_broker.rollout_simulator import _broker_id
+
+    assert _broker_id(identity) == expected
+
+
+def test_rollout_simulator_range_allows_an_open_minimum() -> None:
+    from mcp_broker.rollout_simulator import _in_range
+
+    assert _in_range(2, None, 3) is True

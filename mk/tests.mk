@@ -1,4 +1,4 @@
-.PHONY: test _test-impl _test-targeted _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout test-unit test-journey test-live test-e2e test-quick test-cov xdist-benchmark precommit _precommit-impl _precommit-unit-fanout _precommit-journey-fanout quality-gate
+.PHONY: test _test-impl _test-targeted _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout test-unit test-journey test-live test-live-targeted test-e2e test-quick test-cov xdist-benchmark precommit _precommit-impl _precommit-unit-fanout _precommit-journey-fanout quality-gate
 
 test: ## Run all test tiers in parallel
 	$(call timed_make,"test: total",_test-impl PYTEST_WORKERS="$(PYTEST_WORKERS)")
@@ -8,7 +8,7 @@ _test-impl:
 ifneq ($(strip $(PYTEST_ARGS)),)
 	$(call timed_make,"test: targeted tests",_test-targeted)
 else
-	$(call timed_make,"test: all tiers",-j $(TEST_JOBS) _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout)
+	$(call timed_make,"test: all tiers",$(call parallel_make_args,$(TEST_JOBS)) _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout)
 endif
 	$(call log_success,"All test tiers passed")
 
@@ -19,16 +19,16 @@ _test-targeted:
 	$(call log_success,"Targeted tests passed")
 
 _test-unit-fanout:
-	$(call timed_make,"test child: unit",test-unit PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/unit")
+	$(call timed_make,"test child: unit",test-unit PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/unit" LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)")
 
 _test-journey-fanout:
-	$(call timed_make,"test child: journey",test-journey PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/journey")
+	$(call timed_make,"test child: journey",test-journey PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/journey" LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)")
 
 _test-live-fanout:
-	$(call timed_make,"test child: live",test-live PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/live")
+	$(call timed_make,"test child: live",test-live PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/live" LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)")
 
 _test-e2e-fanout:
-	$(call timed_make,"test child: e2e",test-e2e PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/e2e")
+	$(call timed_make,"test child: e2e",test-e2e PYTEST_WORKERS="$(PYTEST_FANOUT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/e2e" LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)")
 
 test-unit: ## Run unit tests
 	$(call log_step,"Unit tests")
@@ -43,8 +43,16 @@ test-journey: ## Run journey tests
 
 test-live: ## Run live tests
 	$(call log_step,"Live tests")
-	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m pytest $(PYTEST_LIVE_COMMON) $(PYTEST_LIVE_TARGETS)
+	@MCP_BROKER_LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)" PYTHONPATH="$(PYTHONPATH)" \
+		$(PYTHON) -m pytest $(PYTEST_LIVE_COMMON) $(PYTEST_LIVE_TARGETS)
 	$(call log_success,"Live tests passed")
+
+test-live-targeted: ## Run selected live tests with the live timeout budget
+	@test -n "$(PYTEST_ARGS)" || { $(call log_error,"PYTEST_ARGS is required"); exit 2; }
+	$(call log_step,"Targeted live tests")
+	@MCP_BROKER_LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)" PYTHONPATH="$(PYTHONPATH)" \
+		$(PYTHON) -m pytest $(PYTEST_LIVE_COMMON) $(PYTEST_ARGS)
+	$(call log_success,"Targeted live tests passed")
 
 test-e2e: ## Run e2e tests
 	$(call log_step,"E2E tests")
@@ -77,15 +85,15 @@ _precommit-impl:
 ifneq ($(strip $(PYTEST_ARGS)),)
 	$(call timed_make,"precommit: targeted tests",_test-targeted)
 else
-	$(call timed_make,"precommit: unit and journey",-j $(PRECOMMIT_JOBS) _precommit-unit-fanout _precommit-journey-fanout)
+	$(call timed_make,"precommit: unit and journey",$(call parallel_make_args,$(PRECOMMIT_JOBS)) _precommit-unit-fanout _precommit-journey-fanout)
 endif
 	$(call log_success,"Precommit gate passed")
 
 _precommit-unit-fanout:
-	$(call timed_make,"precommit child: unit",test-unit PYTEST_WORKERS="$(PYTEST_PRECOMMIT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/precommit-unit")
+	$(call timed_make,"precommit child: unit",test-unit PYTEST_WORKERS="$(PYTEST_PRECOMMIT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/precommit-unit" LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)")
 
 _precommit-journey-fanout:
-	$(call timed_make,"precommit child: journey",test-journey PYTEST_WORKERS="$(PYTEST_PRECOMMIT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/precommit-journey")
+	$(call timed_make,"precommit child: journey",test-journey PYTEST_WORKERS="$(PYTEST_PRECOMMIT_WORKERS)" RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/precommit-journey" LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)")
 
 quality-gate: test-cov ## Public quality gate using repo-local tests and coverage
 	$(call log_success,"Quality gate passed")

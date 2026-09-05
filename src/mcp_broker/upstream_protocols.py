@@ -19,6 +19,7 @@ class StdioUpstreamClientProtocol(Protocol):
     """What the daemon does with a stdio upstream client held in the registry."""
 
     upstream: UpstreamConfig
+    status: str
 
     def call_tool(
         self, tool_name: str, arguments: dict[str, Any], *, timeout_seconds: int

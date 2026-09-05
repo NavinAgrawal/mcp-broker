@@ -25,6 +25,8 @@ BROKER_KEYS = frozenset(
         "identity",
         "tool_namespace_separator",
         "idle_timeout_seconds",
+        "socket_read_timeout_seconds",
+        "socket_max_request_bytes",
         "cpu_watchdog_percent",
         "cpu_watchdog_seconds",
         "remote_auth",

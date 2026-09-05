@@ -45,6 +45,7 @@ broker_search_tools
 broker_describe_tool
 broker_call_tool
 broker_status
+broker_close_session
 ```
 
 The upstream MCPs still exist. They are discovered and called through the broker when a task needs them.
@@ -74,7 +75,7 @@ See [docs/context-reduction-measurement.md](docs/context-reduction-measurement.m
 - Reuses shared upstreams across sessions when configured.
 - Isolates per-session upstreams when state must not be shared.
 - Maps upstream tools into stable namespaces.
-- Exposes compact search, describe, call, and status tools.
+- Exposes compact search, describe, call, status, and caller-bound session-close tools.
 - Enforces profile-level tool budgets and exposure gates.
 - Blocks mutating upstream exposure unless a profile allowlist grants it.
 - Stores runtime state under `$HOME/mcp/mcp-broker`, outside the repo.
@@ -120,7 +121,7 @@ Implemented:
   allowed-server policy.
 - Dry-run client config rendering, apply-time backups, and rollback.
 - LaunchAgent render and install scripts with dry-run defaults.
-- Compact broker facade for search, describe, call, and status.
+- Compact broker facade for search, describe, call, status, and caller-bound session close.
 - Profile validation from YAML smoke probes.
 - Discovery parity checks between compact client profiles.
 - Public and maintainer quality gates through Makefile targets.
@@ -338,6 +339,7 @@ The compact facade keeps chat-facing profiles small:
 | `broker_describe_tool` | Return schema and metadata for one upstream tool. |
 | `broker_call_tool` | Call one upstream tool through broker routing. Accepts an optional `projection` (`{"paths": [...], "max_array_items": N}`) that trims the response server-side before it reaches the client. |
 | `broker_status` | Show profile-visible upstream state, passive auth probes, and last errors without starting tools. |
+| `broker_close_session` | Release caller-owned per-session upstream processes without stopping shared upstreams or another client session. |
 
 Codex `/mcp` shows the single `mcp-broker` entry by design. Per-upstream visibility, status, and socket path come from `broker_status`.
 

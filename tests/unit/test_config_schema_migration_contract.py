@@ -56,6 +56,16 @@ upstreams: {}
         BrokerConfig.from_file(config_file)
 
 
+def test_broker_identity_rejects_non_mapping_and_unknown_keys() -> None:
+    from mcp_broker.config_identity import BrokerIdentityConfig
+
+    with pytest.raises(ValueError, match="broker.identity must be a mapping"):
+        BrokerIdentityConfig.from_mapping([])
+
+    with pytest.raises(ValueError, match="unknown config key: broker.identity.unknown"):
+        BrokerIdentityConfig.from_mapping({"unknown": "value"})
+
+
 def test_full_v1_config_exercises_every_schema_field(tmp_path: Path) -> None:
     from mcp_broker.config import BrokerConfig
 
@@ -226,6 +236,8 @@ def test_schema_field_inventory_matches_migration_fixture() -> None:
         "broker.remote_auth.required",
         "broker.remote_auth.token_env",
         "broker.remote_auth.token_file",
+        "broker.socket_max_request_bytes",
+        "broker.socket_read_timeout_seconds",
         "broker.tool_namespace_separator",
         "broker",
         "clients",
@@ -349,6 +361,20 @@ upstreams: {{}}
 
     with pytest.raises(ValueError, match=message):
         BrokerConfig.from_file(config_file)
+
+
+def test_broker_identity_config_rejects_non_mapping_input() -> None:
+    from mcp_broker.config_identity import BrokerIdentityConfig
+
+    with pytest.raises(ValueError, match="broker.identity must be a mapping"):
+        BrokerIdentityConfig.from_mapping([])
+
+
+def test_broker_identity_config_rejects_unknown_keys() -> None:
+    from mcp_broker.config_identity import BrokerIdentityConfig
+
+    with pytest.raises(ValueError, match="unknown config key: broker.identity.extra"):
+        BrokerIdentityConfig.from_mapping({"extra": "value"})
 
 
 def _schema_fields(schema: dict[str, Any]) -> set[str]:

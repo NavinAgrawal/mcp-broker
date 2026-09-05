@@ -110,6 +110,7 @@ def test_broker_list_tools_uses_compact_mode_when_budget_would_be_exceeded() -> 
         "broker.describe_tool",
         "broker.call_tool",
         "broker.status",
+        "broker.close_session",
     ]
     assert all(len(tool["description"]) >= 160 for tool in result["tools"])
     assert result["tools"][0]["inputSchema"]["properties"]["query"]["description"]
@@ -139,6 +140,7 @@ def test_broker_list_tools_can_render_compact_tools_with_profile_safe_names() ->
         "broker_describe_tool",
         "broker_call_tool",
         "broker_status",
+        "broker_close_session",
     ]
 
 

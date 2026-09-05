@@ -225,6 +225,7 @@ def test_compact_broker_tools_default_to_dotted_canonical_names() -> None:
         "broker.describe_tool",
         "broker.call_tool",
         "broker.status",
+        "broker.close_session",
     ]
     assert definitions[0]["inputSchema"]["properties"]["query"]["minLength"] == 1
     assert definitions[2]["inputSchema"]["required"] == ["name", "arguments"]
@@ -239,3 +240,84 @@ def test_compact_broker_tools_default_to_dotted_canonical_names() -> None:
     assert projection_schema["properties"]["max_array_items"]["type"] == "integer"
     assert projection_schema["additionalProperties"] is False
     assert "projection" not in definitions[2]["inputSchema"]["required"]
+    assert definitions[4]["inputSchema"]["additionalProperties"] is False
+
+
+def test_compact_broker_tools_apply_snake_style_to_every_broker_tool() -> None:
+    from mcp_broker.config import BrokerSettings
+    from mcp_broker.profiles import ToolExposureProfile
+    from mcp_broker.tool_namespace import ToolNamespaceRouter, compact_broker_tool_definitions
+
+    expected_names = [
+        "broker_search_tools",
+        "broker_describe_tool",
+        "broker_call_tool",
+        "broker_status",
+        "broker_close_session",
+    ]
+
+    assert [
+        tool["name"]
+        for tool in compact_broker_tool_definitions(broker_tool_name_style="snake")
+    ] == expected_names
+
+    router = ToolNamespaceRouter(
+        broker=BrokerSettings(tool_namespace_separator="."),
+        upstreams={},
+        profile=ToolExposureProfile(
+            name="safe-client",
+            max_tools=10,
+            compact_tools_enabled=True,
+            broker_tool_name_style="snake",
+        ),
+    )
+    assert [tool["name"] for tool in router.compact_broker_tools()] == expected_names
+
+
+def test_advertise_all_tools_rejects_duplicate_names_from_one_upstream() -> None:
+    from mcp_broker.config import BrokerSettings, UpstreamConfig
+    from mcp_broker.tool_namespace import ToolNamespaceRouter
+
+    router = ToolNamespaceRouter(
+        broker=BrokerSettings(tool_namespace_separator="."),
+        upstreams={
+            "read-store": UpstreamConfig(
+                name="read-store",
+                command="node",
+                args=[],
+                mode="shared",
+                enabled=True,
+                tool_prefix="read-store",
+            )
+        },
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        router.advertise_all_tools(
+            {"read-store": [{"name": "search"}, {"name": "search"}]}
+        )
+
+    assert str(exc_info.value) == "duplicate advertised tool: read-store.search"
+
+
+def test_advertise_all_tools_skips_mode_disabled_upstream() -> None:
+    from mcp_broker.config import BrokerSettings, UpstreamConfig
+    from mcp_broker.tool_namespace import ToolNamespaceRouter
+
+    router = ToolNamespaceRouter(
+        broker=BrokerSettings(tool_namespace_separator="."),
+        upstreams={
+            "disabled": UpstreamConfig(
+                name="disabled",
+                command="node",
+                args=[],
+                mode="disabled",
+                enabled=True,
+                tool_prefix="disabled",
+            )
+        },
+    )
+
+    assert router.advertise_all_tools(
+        {"disabled": [{"name": "must-not-appear"}]}
+    ) == []

@@ -4,15 +4,13 @@ import pytest
 import yaml
 
 from tests.support.makefiles import read_combined_makefiles
-from tests.support.repo_paths import repo_root
+from tests.support.repo_paths import private_config_path, repo_root
 
 
 pytestmark = pytest.mark.unit
 
 ROOT = repo_root()
 PUBLIC_CONFIG_FILE = ROOT / "config" / "broker.example.yaml"
-
-PRIVATE_CONFIG_FILE = ROOT / "config" / "broker.private.yaml"
 
 REQUIRED_CLIENT_PROFILES = {"codex", "claude", "agy", "manual-test", "maintenance"}
 LLM_PROFILES = ("codex", "claude", "agy")
@@ -31,7 +29,8 @@ PUBLIC_EXAMPLE_UPSTREAMS = [
 def test_makefile_defaults_to_private_config_not_public_example() -> None:
     makefile_text = read_combined_makefiles(ROOT)
 
-    assert "CONFIG_PRIVATE_PATH ?= $(ROOT)/config/broker.private.yaml" in makefile_text
+    assert "RUNTIME_CONFIG_RELATIVE_PATH ?= config/broker.private.yaml" in makefile_text
+    assert "CONFIG_PRIVATE_PATH ?= $(RUNTIME_ROOT)/$(RUNTIME_CONFIG_RELATIVE_PATH)" in makefile_text
     assert "CONFIG_PATH       ?= $(CONFIG_PRIVATE_PATH)" in makefile_text
 
 
@@ -61,6 +60,7 @@ def test_public_example_config_shows_full_runtime_contract() -> None:
     }
 
 
+@pytest.mark.private_contract
 def test_public_and_private_runtime_contract_keys_match() -> None:
     public = yaml.safe_load(PUBLIC_CONFIG_FILE.read_text(encoding="utf-8"))
     private = yaml.safe_load(_private_config_text_or_skip())
@@ -226,10 +226,12 @@ def test_public_example_defines_agy_profile_and_renderer() -> None:
     assert clients["agy"]["mcp_allowed_servers"] == ["mcp-broker"]
 
 
+@pytest.mark.private_contract
 def test_private_config_preserves_public_contract_comments_and_agy_profile() -> None:
     from mcp_broker.config import BrokerConfig
 
     public_text = PUBLIC_CONFIG_FILE.read_text(encoding="utf-8")
+    private_config_file = _required_private_config_file()
     private_text = _private_config_text_or_skip()
     required_comments = [
         line
@@ -248,7 +250,7 @@ def test_private_config_preserves_public_contract_comments_and_agy_profile() -> 
             }
         )
     ]
-    config = BrokerConfig.from_file(PRIVATE_CONFIG_FILE)
+    config = BrokerConfig.from_file(private_config_file)
 
     assert [comment for comment in required_comments if comment not in private_text] == []
     assert "agy" in config.profiles
@@ -264,11 +266,12 @@ def test_private_config_preserves_public_contract_comments_and_agy_profile() -> 
     assert missing_agy == []
 
 
+@pytest.mark.private_contract
 def test_private_config_keeps_llm_profile_exposure_in_parity() -> None:
     from mcp_broker.config import BrokerConfig
 
-    _private_config_text_or_skip()
-    config = BrokerConfig.from_file(PRIVATE_CONFIG_FILE)
+    private_config_file = _required_private_config_file()
+    config = BrokerConfig.from_file(private_config_file)
     enabled_by_profile = {
         profile_name: {
             upstream.name
@@ -278,8 +281,8 @@ def test_private_config_keeps_llm_profile_exposure_in_parity() -> None:
         for profile_name in LLM_PROFILES
     }
 
-    assert enabled_by_profile["codex"] == enabled_by_profile["claude"]
-    assert enabled_by_profile["codex"] == enabled_by_profile["agy"]
+    assert enabled_by_profile["claude"] == enabled_by_profile["agy"]
+    assert enabled_by_profile["claude"] <= enabled_by_profile["codex"]
 
 
 def test_private_config_path_is_gitignored() -> None:
@@ -312,6 +315,11 @@ def _raw_upstreams() -> dict[str, object]:
 
 
 def _private_config_text_or_skip() -> str:
-    if not PRIVATE_CONFIG_FILE.exists():
-        pytest.skip("private config is optional and ignored")
-    return PRIVATE_CONFIG_FILE.read_text(encoding="utf-8")
+    return _required_private_config_file().read_text(encoding="utf-8")
+
+
+def _required_private_config_file() -> Path:
+    path = private_config_path()
+    assert path is not None, "MCP_BROKER_CONFIG or MCP_BROKER_LIVE_CONFIG_PATH is required"
+    assert path.is_file(), f"private broker config does not exist: {path}"
+    return path

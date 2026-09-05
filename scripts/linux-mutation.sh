@@ -9,6 +9,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 MAX_CHILDREN="${MCP_BROKER_MUTATION_MAX_CHILDREN:-$DEFAULT_MAX_CHILDREN}"
 MUTATION_ARGS_VALUE="${MCP_BROKER_MUTATION_ARGS:-}"
+MUTATION_DEBUG="${MCP_BROKER_MUTATION_DEBUG:?MCP_BROKER_MUTATION_DEBUG is required}"
+MUTATION_PATHS_TO_MUTATE="${MCP_BROKER_MUTATION_PATHS_TO_MUTATE:-}"
+MUTATION_TESTS_TO_RUN="${MCP_BROKER_MUTATION_TESTS_TO_RUN:-}"
 WORK_DIR="${MCP_BROKER_MUTATION_WORK_DIR:-}"
 LOG_PATH="${MCP_BROKER_MUTATION_LOG:-$ROOT/var/quality/mutation-linux.log}"
 MUTANTS_EXPORT_DIR="${MCP_BROKER_MUTATION_MUTANTS_DIR:-$ROOT/var/quality/mutants-linux}"
@@ -25,6 +28,9 @@ Environment:
   MCP_BROKER_MUTATION_IMAGE         Container image, default: python:3.11-bookworm
   MCP_BROKER_MUTATION_MAX_CHILDREN  mutmut worker count, default: 1 on macOS, 4 elsewhere
   MCP_BROKER_MUTATION_ARGS          Optional mutant selector
+  MCP_BROKER_MUTATION_DEBUG         Mutmut debug flag, true or false
+  MCP_BROKER_MUTATION_PATHS_TO_MUTATE Optional whitespace-separated source paths
+  MCP_BROKER_MUTATION_TESTS_TO_RUN  Optional whitespace-separated affected test paths
   MCP_BROKER_MUTATION_WORK_DIR      Optional existing work directory
   MCP_BROKER_MUTATION_LOG           Host log path, default: var/quality/mutation-linux.log
   MCP_BROKER_MUTATION_MUTANTS_DIR   Host mutants export dir, default: var/quality/mutants-linux
@@ -113,6 +119,9 @@ mkdir -p "$MUTANTS_EXPORT_DIR"
 "${QOS_PREFIX[@]}" docker run --rm \
   -e MCP_BROKER_MUTATION_MAX_CHILDREN="$MAX_CHILDREN" \
   -e MCP_BROKER_MUTATION_ARGS="$MUTATION_ARGS_VALUE" \
+  -e MCP_BROKER_MUTATION_DEBUG="$MUTATION_DEBUG" \
+  -e MCP_BROKER_MUTATION_PATHS_TO_MUTATE="$MUTATION_PATHS_TO_MUTATE" \
+  -e MCP_BROKER_MUTATION_TESTS_TO_RUN="$MUTATION_TESTS_TO_RUN" \
   -v "$ARCHIVE_PATH:/tmp/source.tar:ro" \
   -v "$ROOT/var/quality:/output" \
   -v "$MUTANTS_EXPORT_DIR:/mutants-output" \
@@ -126,12 +135,50 @@ mkdir -p "$MUTANTS_EXPORT_DIR"
         cp -a /workspace/mutants/. /mutants-output/
       fi
     }
+    rewrite_mutation_scope() {
+      python3 - <<'"'"'PY'"'"'
+import configparser
+import os
+
+paths = os.environ.get("MCP_BROKER_MUTATION_PATHS_TO_MUTATE", "").split()
+tests = os.environ.get("MCP_BROKER_MUTATION_TESTS_TO_RUN", "").split()
+debug = os.environ["MCP_BROKER_MUTATION_DEBUG"]
+if not paths:
+    raise SystemExit(0)
+
+parser = configparser.ConfigParser()
+read_files = parser.read("setup.cfg")
+if not read_files or not parser.has_section("mutmut"):
+    raise SystemExit("setup.cfg has no mutmut section")
+
+value = "\n" + "\n".join(f"    {path}" for path in paths)
+parser.set("mutmut", "paths_to_mutate", value)
+if tests:
+    tests_value = "\n" + "\n".join(f"    {path}" for path in tests)
+    parser.set("mutmut", "tests_dir", tests_value)
+    parser.set("mutmut", "debug", debug)
+also_copy = []
+if parser.has_option("mutmut", "also_copy"):
+    also_copy = [
+        line.strip()
+        for line in parser.get("mutmut", "also_copy").splitlines()
+        if line.strip()
+    ]
+if "src" not in also_copy:
+    also_copy.append("src")
+also_copy_value = "\n" + "\n".join(f"    {path}" for path in also_copy)
+parser.set("mutmut", "also_copy", also_copy_value)
+with open("setup.cfg", "w", encoding="utf-8") as handle:
+    parser.write(handle)
+PY
+    }
     trap copy_mutants EXIT
     apt-get update
     apt-get install -y --no-install-recommends make
     mkdir -p /workspace /tmp/home /tmp/runtime
     tar -xf /tmp/source.tar -C /workspace
     cd /workspace
+    rewrite_mutation_scope
     HOME=/tmp/home make mutation \
       RUNTIME_ROOT=/tmp/runtime \
       PYTHON_BIN=python3 \

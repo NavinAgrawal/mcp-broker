@@ -190,7 +190,7 @@ def _is_expired(expires_at: str, *, now: str | None) -> bool:
 
 def _parse_timestamp(value: str) -> datetime:
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
         raise BreakGlassError(f"invalid timestamp: {value}") from exc
     if parsed.tzinfo is None:

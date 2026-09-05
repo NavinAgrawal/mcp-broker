@@ -1,6 +1,6 @@
 {
   "name": "@doricstack/mcp-broker",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Local MCP broker for sharing upstream MCP servers across MCP clients",
   "author": "Navin B Agrawal",
   "license": "MIT",

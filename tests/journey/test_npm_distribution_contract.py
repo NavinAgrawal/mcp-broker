@@ -57,8 +57,10 @@ def test_makefile_exposes_npm_distribution_targets() -> None:
         "npm-release-smoke:",
         "publish-everywhere:",
         "MCP_BROKER_NPM_DEV_ROOT",
-        "$(NPM) publish --access public --provenance",
+        "NPM_PUBLISH_PROVENANCE_ARGS ?=",
+        "$(NPM) publish --access public $(NPM_PUBLISH_PROVENANCE_ARGS)",
     ]:
         assert term in makefile
 
+    assert make_vars["NPM_PUBLISH_PROVENANCE_ARGS"] == ""
     assert "publish-npm:" not in makefile

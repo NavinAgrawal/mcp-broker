@@ -15,9 +15,12 @@ DEFAULT_RESTART_MAX_ATTEMPTS = 3
 DEFAULT_RESTART_BACKOFF_SECONDS = 2
 DEFAULT_READY_TIMEOUT_SECONDS = 10
 DEFAULT_CALL_TIMEOUT_SECONDS = 60
+MAX_CALL_TIMEOUT_SECONDS = 300
 DEFAULT_HTTP_RETRY_ATTEMPTS = 0
 DEFAULT_HTTP_RETRY_BACKOFF_SECONDS = 0
 DEFAULT_IDLE_TIMEOUT_SECONDS = 900
+DEFAULT_SOCKET_READ_TIMEOUT_SECONDS = 30
+DEFAULT_SOCKET_MAX_REQUEST_BYTES = 16_777_216
 DEFAULT_CPU_WATCHDOG_PERCENT = 80
 DEFAULT_CPU_WATCHDOG_SECONDS = 10
 DEFAULT_AUTH_REPAIR_TIMEOUT_SECONDS = 300
@@ -68,9 +71,11 @@ class HealthPolicy:
             f"{path}.ready_timeout_seconds",
             raw.get("ready_timeout_seconds", DEFAULT_READY_TIMEOUT_SECONDS),
         )
-        call_timeout_seconds = _positive_int(
+        call_timeout_seconds = _strict_bounded_int(
             f"{path}.call_timeout_seconds",
             raw.get("call_timeout_seconds", DEFAULT_CALL_TIMEOUT_SECONDS),
+            minimum=1,
+            maximum=MAX_CALL_TIMEOUT_SECONDS,
         )
         return cls(
             ready_timeout_seconds=ready_timeout_seconds,
@@ -291,6 +296,29 @@ def parse_startup_timeout(path: str, value: Any) -> int:
     )
 
 
+def parse_positive_int(path: str, value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{path} must be greater than 0")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path} must be greater than 0") from exc
+    if parsed <= 0:
+        raise ValueError(f"{path} must be greater than 0")
+    return parsed
+
+
+def parse_tool_timeouts(path: str, value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must be a mapping")
+    parsed: dict[str, int] = {}
+    for tool_name, timeout_seconds in value.items():
+        if not isinstance(tool_name, str) or not tool_name:
+            raise ValueError(f"{path} keys must be non-empty tool names")
+        parsed[tool_name] = parse_positive_int(f"{path}.{tool_name}", timeout_seconds)
+    return parsed
+
+
 def _mapping_or_empty(path: str, data: dict[str, Any] | None) -> dict[str, Any]:
     if data is None:
         return {}
@@ -330,3 +358,9 @@ def _bounded_int(path: str, value: Any, *, minimum: int, maximum: int) -> int:
     if parsed < minimum or parsed > maximum:
         raise ValueError(f"{path} must be between {minimum} and {maximum}")
     return parsed
+
+
+def _strict_bounded_int(path: str, value: Any, *, minimum: int, maximum: int) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{path} must be between {minimum} and {maximum}")
+    return _bounded_int(path, value, minimum=minimum, maximum=maximum)

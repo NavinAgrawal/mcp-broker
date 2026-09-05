@@ -366,7 +366,7 @@ def _format_utc(value: datetime) -> str:
 
 
 def _parse_utc(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    return datetime.fromisoformat(value).astimezone(UTC)
 
 
 def _read_json_optional(path: Path) -> dict[str, Any] | None:
@@ -387,7 +387,7 @@ def _require_json(path: Path, message: str) -> dict[str, Any]:
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_bytes().splitlines():
         loaded = json.loads(line)
         if not isinstance(loaded, dict):
             raise DistributedStateError(f"expected JSON object in {path}")

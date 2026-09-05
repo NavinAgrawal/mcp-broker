@@ -22,8 +22,8 @@ Runtime root:
       active-runtime.json
       previous-runtime.json
       versions/
-        2.1.0/
-          2.1.0-abc123def456/
+        <version>/
+          <runtime_id>/
             runtime-manifest.json
     upstreams/
       example-store/
@@ -32,6 +32,18 @@ Runtime root:
 ```
 
 The repo owns source and tests. The runtime root owns machine-specific state.
+
+The sole live inventory is `config/broker.private.yaml` under the runtime root.
+For an existing checkout-local inventory, inspect the migration before changing
+anything, then opt in only when it reports `ready`:
+
+```bash
+make migrate-runtime-config
+make migrate-runtime-config RUNTIME_CONFIG_MIGRATION_APPLY=1
+```
+
+The migration refuses a divergent destination. `make runtime-sync-check` then
+verifies the LaunchAgent points at the canonical config and public runtime tree.
 
 `make doctor` creates the base runtime directories, runs the broker-owned
 runtime reaper, verifies that the central config file exists, and fails when an
@@ -160,3 +172,16 @@ and moves the active runtime pointer only after that extracted runtime passes.
 `rollback` validates the previous manifest and entrypoint before swapping
 pointers. `apply`, `rollback`, and `uninstall` require explicit approval flags.
 Failed apply preserves the previous active runtime pointer.
+# Canonical local configuration
+
+The machine-local broker inventory has one authority:
+
+```text
+$HOME/mcp/mcp-broker/config/broker.private.yaml
+```
+
+The private repository owns source and public-safe templates. The public repository is the release and runtime checkout. Neither checkout owns a separate live inventory file.
+
+Use `make runtime-sync-check` from the public runtime checkout after any LaunchAgent change. It verifies the LaunchAgent runtime root, config path, and working directory without reading config values.
+
+Use `make public-export-verify PUBLIC_REPO=<public-checkout>` from the private source checkout before a public commit. It compares selected public files without copying or modifying either checkout.

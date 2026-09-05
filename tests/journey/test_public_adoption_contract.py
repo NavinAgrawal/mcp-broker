@@ -67,6 +67,7 @@ def test_mcpb_manifest_tool_names_are_client_safe() -> None:
         "broker_describe_tool",
         "broker_call_tool",
         "broker_status",
+        "broker_close_session",
     ]
     assert [name for name in tool_names if not client_safe_pattern.fullmatch(name)] == []
 

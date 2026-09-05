@@ -155,7 +155,6 @@ docker-hub-public-ensure: ## Ensure Docker Hub repository exists with public vis
 	@test -n "$${DOCKERHUB_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m DOCKERHUB_TOKEN is required for docker-hub-public-ensure\n" >&2; exit 2; }
 	@$(PYTHON_BIN) "$(ROOT)/scripts/ensure_docker_hub_public.py" \
 		--username "$${DOCKERHUB_USERNAME}" \
-		--token "$${DOCKERHUB_TOKEN}" \
 		--namespace "$(DOCKER_NAMESPACE)" \
 		--repository "$(DOCKER_IMAGE_NAME)" \
 		--registry "$(DOCKER_REGISTRY_HOST)" \
@@ -279,14 +278,14 @@ release-check: ## Run the full release transaction preflight before tagging or p
 _release-check-impl:
 	$(call timed_make,"release-check: version",release-version-check)
 	$(call timed_make,"release-check: publish preflight",publish-everywhere-check)
-	$(call timed_make,"release-check: directory and bundle metadata",-j $(PUBLISH_CHECK_JOBS) directory-submission-check mcpb-smoke smithery-payload-check)
+	$(call timed_make,"release-check: directory and bundle metadata",$(call parallel_make_args,$(PUBLISH_CHECK_JOBS)) directory-submission-check mcpb-smoke smithery-payload-check)
 	$(call log_success,"Release preflight passed")
 
-release: ## CI release transaction: preflight once, then publish every public surface
+release: ## Release transaction: preflight once, then publish every public surface
 	$(call timed_make,"release: total",_release-impl)
 
 _release-impl:
-	@test "$(GITHUB_ACTIONS)" = "true" || { printf "\033[1;31m[ERROR]\033[0m release must run in GitHub Actions\n" >&2; exit 2; }
+	@$(MAKE) --no-print-directory _publish-execution-mode-check
 	@test "$(RELEASE_APPLY)" = "1" || { printf "\033[1;31m[ERROR]\033[0m Set RELEASE_APPLY=1 to run the release transaction\n" >&2; exit 2; }
 	$(call timed_make,"release: preflight",release-check)
 	$(call timed_make,"release: publish",PUBLISH_EVERYWHERE_APPLY=1 PUBLISH_EVERYWHERE_SKIP_CHECKS=1 publish-everywhere)
@@ -302,7 +301,7 @@ publish-everywhere-check: ## Run all local gates required before registry public
 _publish-everywhere-check-impl:
 	$(call timed_make,"publish-everywhere-check: version check",publish-version-check)
 	$(call timed_make,"publish-everywhere-check: release gate",PYTEST_MARKER_EXPRESSION="$(RELEASE_GATE_PYTEST_MARKER_EXPRESSION)" release-gate)
-	$(call timed_make,"publish-everywhere-check: package smoke children",-j $(PUBLISH_CHECK_JOBS) npm-package-check npm-smoke _publish-check-docker-smoke _publish-check-docker-buildx)
+	$(call timed_make,"publish-everywhere-check: package smoke children",$(call parallel_make_args,$(PUBLISH_CHECK_JOBS)) npm-package-check npm-smoke _publish-check-docker-smoke _publish-check-docker-buildx)
 	$(call log_success,"Publish-everywhere checks passed")
 
 _publish-check-docker-smoke:
@@ -311,11 +310,11 @@ _publish-check-docker-smoke:
 _publish-check-docker-buildx:
 	$(call timed_make,"publish check child: docker-buildx",docker-buildx DOCKER_IMAGE="mcp-broker:buildx-check" DOCKER_PLATFORMS="$(DOCKER_LOCAL_PLATFORM)")
 
-publish-everywhere: ## CI-only one-shot publication to PyPI, NPM, Docker Hub, GHCR, MCP Registry, and Homebrew
+publish-everywhere: ## One-shot publication to PyPI, NPM, Docker Hub, GHCR, MCP Registry, and Homebrew
 	$(call timed_make,"publish-everywhere: total",_publish-everywhere-impl)
 
 _publish-everywhere-impl:
-	@test "$(GITHUB_ACTIONS)" = "true" || { printf "\033[1;31m[ERROR]\033[0m publish-everywhere must run in GitHub Actions\n" >&2; exit 2; }
+	@$(MAKE) --no-print-directory _publish-execution-mode-check
 	@test "$(PUBLISH_EVERYWHERE_APPLY)" = "1" || { printf "\033[1;31m[ERROR]\033[0m Set PUBLISH_EVERYWHERE_APPLY=1 to publish\n" >&2; exit 2; }
 	$(call timed_make,"publish-everywhere: preflight checks",_publish-everywhere-preflight)
 	$(call timed_make,"publish-everywhere: required env",_publish-everywhere-required-env-check)
@@ -328,19 +327,43 @@ _publish-everywhere-impl:
 	$(call timed_make,"publish-everywhere: github release verification",_publish-everywhere-live-verify-github-release)
 	$(call log_success,"Publish-everywhere completed")
 
+_publish-execution-mode-check:
+	@case "$(PUBLISH_EXECUTION_MODE)" in \
+		local) \
+			test "$${GITHUB_ACTIONS:-false}" != "true" || { printf "\033[1;31m[ERROR]\033[0m local publication is forbidden inside GitHub Actions\n" >&2; exit 2; }; \
+			test "$(PYPI_TRUSTED_PUBLISHING)" = "never" || { printf "\033[1;31m[ERROR]\033[0m local publication requires PYPI_TRUSTED_PUBLISHING=never\n" >&2; exit 2; }; \
+			test -z "$(NPM_PUBLISH_PROVENANCE_ARGS)" || { printf "\033[1;31m[ERROR]\033[0m local publication forbids NPM provenance\n" >&2; exit 2; }; \
+			test "$(MCP_REGISTRY_LOGIN_METHOD)" = "github" || { printf "\033[1;31m[ERROR]\033[0m local publication requires MCP_REGISTRY_LOGIN_METHOD=github\n" >&2; exit 2; } \
+			;; \
+		ci) \
+			test "$${GITHUB_ACTIONS:-false}" = "true" || { printf "\033[1;31m[ERROR]\033[0m ci publication requires GitHub Actions\n" >&2; exit 2; }; \
+			test "$(PYPI_TRUSTED_PUBLISHING)" = "always" || { printf "\033[1;31m[ERROR]\033[0m ci publication requires PYPI_TRUSTED_PUBLISHING=always\n" >&2; exit 2; }; \
+			test "$(NPM_PUBLISH_PROVENANCE_ARGS)" = "--provenance" || { printf "\033[1;31m[ERROR]\033[0m ci publication requires NPM provenance\n" >&2; exit 2; }; \
+			test "$(MCP_REGISTRY_LOGIN_METHOD)" = "github-oidc" || { printf "\033[1;31m[ERROR]\033[0m ci publication requires MCP_REGISTRY_LOGIN_METHOD=github-oidc\n" >&2; exit 2; } \
+			;; \
+		*) \
+			printf "\033[1;31m[ERROR]\033[0m PUBLISH_EXECUTION_MODE must be local or ci\n" >&2; \
+			exit 2 \
+			;; \
+	esac
+
 _publish-everywhere-preflight:
 	@if [[ "$(PUBLISH_EVERYWHERE_SKIP_CHECKS)" == "1" ]]; then \
-		printf "\033[1;32m[OK]\033[0m publish-everywhere: preflight checks skipped by release target\n"; \
+		printf "\033[1;32m[OK]\033[0m publish-everywhere: current local preflight evidence reused\n"; \
 	else \
 		$(MAKE) --no-print-directory publish-everywhere-check; \
 	fi
 
 _publish-everywhere-required-env-check:
-	@test -n "$${HOMEBREW_TAP_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m HOMEBREW_TAP_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
 	@test -n "$${DOCKERHUB_USERNAME:-}" || { printf "\033[1;31m[ERROR]\033[0m DOCKERHUB_USERNAME is required before publish-everywhere starts\n" >&2; exit 2; }
 	@test -n "$${DOCKERHUB_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m DOCKERHUB_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
-	@test -n "$${NODE_AUTH_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m NODE_AUTH_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
-	@test -n "$${GH_TOKEN:-$${GITHUB_TOKEN:-}}" || { printf "\033[1;31m[ERROR]\033[0m GH_TOKEN or GITHUB_TOKEN is required before publish-everywhere starts\n" >&2; exit 2; }
+	@if [[ "$(PUBLISH_EXECUTION_MODE)" == "local" ]]; then \
+		test -n "$${UV_PUBLISH_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m UV_PUBLISH_TOKEN is required for local PyPI publication\n" >&2; exit 2; }; \
+	else \
+		test -n "$${HOMEBREW_TAP_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m HOMEBREW_TAP_TOKEN is required for CI publication\n" >&2; exit 2; }; \
+		test -n "$${NODE_AUTH_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m NODE_AUTH_TOKEN is required for CI publication\n" >&2; exit 2; }; \
+		test -n "$${GH_TOKEN:-$${GITHUB_TOKEN:-}}" || { printf "\033[1;31m[ERROR]\033[0m GH_TOKEN or GITHUB_TOKEN is required for CI publication\n" >&2; exit 2; }; \
+	fi
 	$(call log_success,"Publish-everywhere required environment is present")
 
 _publish-everywhere-auth-preflight:
@@ -353,20 +376,23 @@ _publish-everywhere-auth-preflight:
 			printf "\033[1;31m[ERROR]\033[0m GHCR package is not public: %s/%s visibility=%s\n" "$(PUBLIC_NAMESPACE)" "$(DOCKER_IMAGE_NAME)" "$$visibility" >&2; \
 			exit 2; \
 		fi
-	@tmpdir="$$(mktemp -d)"; \
+	@HOMEBREW_EFFECTIVE_TOKEN="$${HOMEBREW_TAP_TOKEN:-}"; \
+		if [[ -z "$$HOMEBREW_EFFECTIVE_TOKEN" ]]; then HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token)"; fi; \
+		export HOMEBREW_EFFECTIVE_TOKEN; \
+		tmpdir="$$(mktemp -d)"; \
 		trap 'rm -rf "$$tmpdir"' EXIT; \
 		printf '%s\n' \
 			'#!/usr/bin/env bash' \
 			'case "$$1" in' \
 			'  *Username*) printf "%s\n" x-access-token ;;' \
-			'  *Password*) printf "%s\n" "$${HOMEBREW_TAP_TOKEN}" ;;' \
+			'  *Password*) printf "%s\n" "$${HOMEBREW_EFFECTIVE_TOKEN}" ;;' \
 			'esac' > "$$tmpdir/git-askpass.sh"; \
 		chmod 0700 "$$tmpdir/git-askpass.sh"; \
 		GIT_ASKPASS="$$tmpdir/git-askpass.sh" GIT_TERMINAL_PROMPT=0 git ls-remote "$(HOMEBREW_TAP_CLONE_URL)" HEAD >/dev/null
 	@tmpdir="$$(mktemp -d)"; \
 		trap 'rm -rf "$$tmpdir"' EXIT; \
 		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
-		(cd "$$tmpdir" && mcp-publisher login github-oidc >/dev/null)
+		(cd "$$tmpdir" && mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" >/dev/null)
 	$(call log_success,"Publish-everywhere auth preflight passed")
 
 _publish-everywhere-docker-hub-public:
@@ -407,7 +433,6 @@ _publish-everywhere-live-verify-registries:
 
 _publish-everywhere-github-release:
 	@command -v gh >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m gh is required to create the GitHub Release\n" >&2; exit 2; }
-	@test -n "$${GH_TOKEN:-$${GITHUB_TOKEN:-}}" || { printf "\033[1;31m[ERROR]\033[0m GH_TOKEN or GITHUB_TOKEN is required to create the GitHub Release\n" >&2; exit 2; }
 	@target="$$(git -C "$(ROOT)" rev-parse HEAD)"; \
 	if gh release view "$(GITHUB_RELEASE_TAG)" --repo "$(GITHUB_REPO)" >/dev/null 2>&1; then \
 		gh release edit "$(GITHUB_RELEASE_TAG)" \
@@ -462,7 +487,7 @@ _publish-everywhere-pypi:
 		printf "\033[1;32m[OK]\033[0m PyPI package already verified: %s==%s\n" "$(PYPI_PROJECT_NAME)" "$(PACKAGE_VERSION)"; \
 	elif [ "$$action" = "publish" ]; then \
 		command -v "$(UV)" >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m uv is required for publish-everywhere\n" >&2; exit 2; }; \
-		"$(UV)" publish --trusted-publishing always --check-url "$(PYPI_SIMPLE_CHECK_URL)" "$(PACKAGE_DIST_DIR)"/*; \
+		"$(UV)" publish --trusted-publishing "$(PYPI_TRUSTED_PUBLISHING)" --check-url "$(PYPI_SIMPLE_CHECK_URL)" "$(PACKAGE_DIST_DIR)"/*; \
 	else \
 		printf "\033[1;31m[ERROR]\033[0m PyPI idempotency check returned invalid action: %s\n" "$$action" >&2; \
 		exit 2; \
@@ -483,7 +508,7 @@ _publish-everywhere-npm:
 	if [ "$$action" = "skip" ]; then \
 		printf "\033[1;32m[OK]\033[0m NPM package already verified: %s@%s\n" "$(NPM_PACKAGE_NAME)" "$(PACKAGE_VERSION)"; \
 	elif [ "$$action" = "publish" ]; then \
-		cd "$(NPM_DIR)" && $(NPM) publish --access public --provenance; \
+		cd "$(NPM_DIR)" && $(NPM) publish --access public $(NPM_PUBLISH_PROVENANCE_ARGS); \
 	else \
 		printf "\033[1;31m[ERROR]\033[0m NPM idempotency check returned invalid action: %s\n" "$$action" >&2; \
 		exit 2; \
@@ -522,7 +547,7 @@ _publish-everywhere-mcp-registry:
 		command -v mcp-publisher >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m mcp-publisher is required for publish-everywhere\n" >&2; exit 2; }; \
 		tmpdir="$$(mktemp -d)"; \
 		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
-		(cd "$$tmpdir" && mcp-publisher login github-oidc && mcp-publisher publish); \
+		(cd "$$tmpdir" && mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" && mcp-publisher publish); \
 	else \
 		printf "\033[1;31m[ERROR]\033[0m MCP Registry idempotency check returned invalid action: %s\n" "$$action" >&2; \
 		exit 2; \
@@ -530,14 +555,16 @@ _publish-everywhere-mcp-registry:
 	$(call log_success,"MCP Registry publish target completed")
 
 _publish-everywhere-homebrew:
-	@test -n "$${HOMEBREW_TAP_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m HOMEBREW_TAP_TOKEN is required to update $(HOMEBREW_TAP_REPO)\n" >&2; exit 2; }
-	@tmpdir="$$(mktemp -d)"; \
+	@HOMEBREW_EFFECTIVE_TOKEN="$${HOMEBREW_TAP_TOKEN:-}"; \
+		if [[ -z "$$HOMEBREW_EFFECTIVE_TOKEN" ]]; then HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token)"; fi; \
+		export HOMEBREW_EFFECTIVE_TOKEN; \
+		tmpdir="$$(mktemp -d)"; \
 		trap 'rm -rf "$$tmpdir"' EXIT; \
 		printf '%s\n' \
 			'#!/usr/bin/env bash' \
 			'case "$$1" in' \
 			'  *Username*) printf "%s\n" x-access-token ;;' \
-			'  *Password*) printf "%s\n" "$${HOMEBREW_TAP_TOKEN}" ;;' \
+			'  *Password*) printf "%s\n" "$${HOMEBREW_EFFECTIVE_TOKEN}" ;;' \
 			'  *) printf "\n" ;;' \
 			'esac' > "$$tmpdir/git-askpass.sh"; \
 		chmod 700 "$$tmpdir/git-askpass.sh"; \

@@ -56,7 +56,7 @@ def test_install_dry_run_writes_launchagent_preview_only_after_smoke_passes(tmp_
     assert "<string>-m</string>" in preview_text
     assert "<string>mcp_broker.daemon</string>" in preview_text
     assert "<string>--config</string>" in preview_text
-    assert str(ROOT / "config" / "broker.private.yaml") in preview_text
+    assert env["MCP_BROKER_CONFIG"] in preview_text
     assert "<key>WorkingDirectory</key>" in preview_text
     assert "<key>AssociatedBundleIdentifiers</key>" in preview_text
     assert "<string>com.mcp-broker.agent</string>" in preview_text
@@ -113,7 +113,7 @@ def test_install_apply_backs_up_existing_launchagent_before_write(tmp_path: Path
     assert str(ROOT / "venv-mcp-broker" / "bin" / "python") in launchagent_text
     assert "<string>mcp_broker.daemon</string>" in launchagent_text
     assert "<string>--config</string>" in launchagent_text
-    assert str(ROOT / "config" / "broker.private.yaml") in launchagent_text
+    assert env["MCP_BROKER_CONFIG"] in launchagent_text
     assert _launchagent_app_bundle(tmp_path).is_dir()
     app_info = (_launchagent_app_bundle(tmp_path) / "Contents" / "Info.plist").read_text(
         encoding="utf-8"
@@ -148,7 +148,7 @@ def test_systemd_install_dry_run_writes_service_preview_after_smoke_passes(tmp_p
     assert "MCP_BROKER_CONFIG=" in preview_text
     assert f"Environment=PATH={env['PATH']}" in preview_text
     assert "mcp_broker.daemon" in preview_text
-    assert str(ROOT / "config" / "broker.private.yaml") in preview_text
+    assert env["MCP_BROKER_CONFIG"] in preview_text
     assert not _systemd_service_path(tmp_path).exists()
 
 
@@ -218,6 +218,7 @@ def _env_with_controlled_make(tmp_path: Path, *, exit_code: int) -> dict[str, st
             "HOME": str(tmp_path / "home"),
             "XDG_CONFIG_HOME": str(tmp_path / "home" / ".config"),
             "MCP_BROKER_RUNTIME_ROOT": str(tmp_path / "runtime"),
+            "MCP_BROKER_CONFIG": str(tmp_path / "config" / "broker.private.yaml"),
             "MCP_BROKER_MAKE_LOG": str(tmp_path / "make.log"),
             "PATH": str(bin_dir) + os.pathsep + env["PATH"],
         }

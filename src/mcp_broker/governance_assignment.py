@@ -157,14 +157,19 @@ def _assignment_priority(assignment: Mapping[str, Any]) -> int:
     return int(assignment.get("priority", 0))
 
 
-def _reject_private_values(value: Any, field_name: str = "") -> None:
+def _reject_private_values(value: Mapping[str, Any]) -> None:
+    for child_name, child_value in value.items():
+        _reject_private_value(child_value, field_name=str(child_name))
+
+
+def _reject_private_value(value: Any, *, field_name: str) -> None:
     if isinstance(value, Mapping):
         for child_name, child_value in value.items():
-            _reject_private_values(child_value, str(child_name))
+            _reject_private_value(child_value, field_name=str(child_name))
         return
     if isinstance(value, list):
         for child_value in value:
-            _reject_private_values(child_value, field_name)
+            _reject_private_value(child_value, field_name=field_name)
         return
     if not isinstance(value, str):
         return

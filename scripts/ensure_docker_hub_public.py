@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import json
 import logging
+import os
 import sys
 import time
 from typing import Any
@@ -268,10 +269,16 @@ def _expect_dict(value: object, label: str) -> dict[str, object]:
     return value
 
 
+def dockerhub_token_from_env(environ: Mapping[str, str]) -> str:
+    token = environ.get("DOCKERHUB_TOKEN", "").strip()
+    if not token:
+        raise DockerHubPublicError("DOCKERHUB_TOKEN is required")
+    return token
+
+
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--username", required=True)
-    parser.add_argument("--token", required=True)
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--registry", required=True)
@@ -287,10 +294,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
+        token = dockerhub_token_from_env(os.environ)
         result = ensure_docker_hub_public(
             DockerHubConfig(
                 username=args.username,
-                token=args.token,
+                token=token,
                 namespace=args.namespace,
                 repository=args.repository,
                 registry=args.registry,

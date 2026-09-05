@@ -2,6 +2,26 @@
 
 All notable public changes will be recorded here.
 
+## 2.1.0 - 2026-09-05
+
+- Add caller-bound broker session closure so clients can release idle upstream
+  processes without affecting another session.
+- Read newline-framed broker requests across socket chunks so large Outlook
+  attachment payloads reach the upstream intact.
+- Keep the apps checkout as the source repository and export runtime files to
+  the public checkout named by the active environment.
+- Default registry publication to local credentials while repository GitHub
+  Actions remain disabled.
+- Synchronize release metadata through the Makefile release path.
+- Harden plugin runtime bootstrap transactions with fail-closed metadata,
+  runtime-path, entrypoint, archive, smoke, rollback, and status validation.
+- Harden fleet collection envelopes so local status upload preparation rejects
+  unsafe URLs, auth references, retention values, timestamps, collector IDs,
+  non-object payload sections, local paths, account identifiers, and secret-like
+  values before any collection artifact is produced.
+- Add governed changed-file mutation selection for interactive macOS release
+  gates, while preserving the full public mutation universe in `setup.cfg`.
+
 ## 2.0.0 - 2026-06-27
 
 - BREAKING: the project moved from the personal `NavinAgrawal`/`navinagrawal`

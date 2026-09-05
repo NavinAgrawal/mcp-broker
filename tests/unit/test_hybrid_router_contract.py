@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 
@@ -21,6 +23,7 @@ def test_hybrid_router_policy_declares_default_local_boundary() -> None:
     assert policy["schema_version"] == 1
     assert policy["default_execution_boundary"] == "local_edge"
     assert policy["client_contract"] == "unchanged_tools_call_shape"
+    assert policy["shared_worker_boundary"] == "shared_worker"
     assert policy["shared_worker_requires"] == [
         "stateless_tag",
         "shared_mode",
@@ -32,7 +35,7 @@ def test_hybrid_router_policy_declares_default_local_boundary() -> None:
 
 
 def test_hybrid_routing_context_ignores_invalid_optional_params() -> None:
-    from mcp_broker.hybrid_router import HybridRoutingContext
+    from mcp_broker.hybrid_router import HybridRoutingContext, _optional_string
 
     context = HybridRoutingContext.from_params(
         {
@@ -45,6 +48,7 @@ def test_hybrid_routing_context_ignores_invalid_optional_params() -> None:
     assert context.tenant_context == TENANT_CONTEXT
     assert context.team_id is None
     assert context.quota_snapshot is None
+    assert _optional_string("team-a") == "team-a"
 
 
 def test_local_only_upstream_routes_to_edge_without_calling_shared_worker() -> None:
@@ -262,6 +266,267 @@ def test_unknown_tool_prefix_fails_before_routing() -> None:
             team_id="team-a",
             quota_snapshot=_quota_snapshot(),
         )
+
+
+def test_shared_worker_invalid_result_fails_closed() -> None:
+    from mcp_broker.broker import BrokerToolError
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.hybrid_router import HybridToolRouter, SharedWorkerRoute
+
+    router = HybridToolRouter(
+        upstreams={
+            "example-stateless": UpstreamConfig(
+                name="example-stateless",
+                command="example-stateless",
+                tool_prefix="example",
+                mode="shared",
+                tags=("stateless", "shared-worker"),
+            )
+        },
+        shared_worker=SharedWorkerRoute(lambda **_kwargs: {"allowed": True, "result": "not-a-map"}),
+    )
+
+    with pytest.raises(BrokerToolError) as exc_info:
+        router.call_tool(
+            advertised_name="example.echo",
+            arguments={},
+            edge_caller=RecordingEdgeCaller().call,
+            tenant_context=TENANT_CONTEXT,
+            team_id="team-a",
+            quota_snapshot=_quota_snapshot(tool_name="example.echo"),
+        )
+    assert exc_info.value.code == "invalid_shared_worker_response"
+    assert exc_info.value.message == (
+        "invalid shared worker tools/call response from example-stateless"
+    )
+    assert exc_info.value.upstream_name == "example-stateless"
+    assert exc_info.value.tool_name == "echo"
+
+
+@pytest.mark.parametrize("missing_field", ["tenant_context", "team_id", "quota_snapshot"])
+def test_quota_decision_requires_complete_shared_context(missing_field: str) -> None:
+    from mcp_broker.broker import BrokerToolError
+    from mcp_broker.hybrid_router import _quota_decision
+
+    arguments = {
+        "tenant_context": TENANT_CONTEXT,
+        "team_id": "team-a",
+        "upstream_id": "example-stateless",
+        "tool_name": "example.echo",
+        "quota_snapshot": _quota_snapshot(tool_name="example.echo"),
+    }
+    arguments[missing_field] = None
+
+    with pytest.raises(BrokerToolError) as error:
+        _quota_decision(
+            **arguments,
+        )
+
+    assert error.value.code == "shared_routing_context_missing"
+    assert error.value.message == (
+        "shared routing requires tenant_context, team_id, and quota_snapshot"
+    )
+    assert error.value.upstream_name == "example-stateless"
+    assert error.value.tool_name == "example.echo"
+
+
+def test_shared_worker_quota_validation_errors_are_reported_as_tool_errors() -> None:
+    from mcp_broker.broker import BrokerToolError
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.hybrid_router import HybridToolRouter, SharedWorkerRoute
+
+    router = HybridToolRouter(
+        upstreams={
+            "example-stateless": UpstreamConfig(
+                name="example-stateless",
+                command="example-stateless",
+                tool_prefix="example",
+                mode="shared",
+                tags=("stateless", "shared-worker"),
+            )
+        },
+        shared_worker=SharedWorkerRoute(lambda **_kwargs: {}),
+    )
+
+    with pytest.raises(BrokerToolError) as error:
+        router.call_tool(
+            advertised_name="example.echo",
+            arguments={},
+            edge_caller=RecordingEdgeCaller().call,
+            tenant_context={**TENANT_CONTEXT, "tenant_id": ""},
+            team_id="team-a",
+            quota_snapshot=_quota_snapshot(tool_name="example.echo"),
+        )
+
+    assert error.value.code == "shared_routing_quota_invalid"
+    assert error.value.message == "tenant_id is required"
+    assert error.value.upstream_name == "example-stateless"
+    assert error.value.tool_name == "example.echo"
+
+
+def test_hybrid_router_enforces_profile_before_routing() -> None:
+    from mcp_broker.broker import BrokerToolError
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.hybrid_router import HybridToolRouter, SharedWorkerRoute
+    from mcp_broker.profiles import ToolExposureProfile
+
+    router = HybridToolRouter(
+        upstreams={
+            "local-store": UpstreamConfig(
+                name="local-store",
+                command="local-store",
+                tool_prefix="local-store",
+                mode="per_session",
+                tags=("stateful",),
+                profiles=("allowed",),
+            )
+        },
+        shared_worker=SharedWorkerRoute(lambda **_: {}),
+        profile=ToolExposureProfile(name="blocked", max_tools=10),
+    )
+
+    with pytest.raises(BrokerToolError) as exc_info:
+        router.call_tool(
+            advertised_name="local-store.search",
+            arguments={},
+            edge_caller=RecordingEdgeCaller().call,
+            tenant_context=TENANT_CONTEXT,
+            team_id="team-a",
+            quota_snapshot=_quota_snapshot(),
+        )
+    assert exc_info.value.code == "profile_denied"
+
+
+def test_hybrid_router_reuses_supplied_call_locks_for_serialized_edge_calls() -> None:
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.hybrid_router import HybridToolRouter, SharedWorkerRoute
+
+    call_locks: dict[str, object] = {}
+    router = HybridToolRouter(
+        upstreams={
+            "local-store": UpstreamConfig(
+                name="local-store",
+                command="local-store",
+                tool_prefix="local-store",
+                mode="per_session",
+                tags=("stateful",),
+                serialize_calls=True,
+            )
+        },
+        shared_worker=SharedWorkerRoute(lambda **_: {}),
+        call_locks=call_locks,
+    )
+
+    router.call_tool(
+        advertised_name="local-store.search",
+        arguments={},
+        edge_caller=RecordingEdgeCaller().call,
+        tenant_context=TENANT_CONTEXT,
+        team_id="team-a",
+        quota_snapshot=_quota_snapshot(),
+    )
+
+    assert set(call_locks) == {"local-store"}
+
+
+@pytest.mark.parametrize("missing_field", ["tenant_context", "team_id", "quota_snapshot"])
+def test_hybrid_router_uses_edge_when_shared_context_is_incomplete(
+    missing_field: str,
+) -> None:
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.hybrid_router import HybridToolRouter, SharedWorkerRoute
+
+    edge = RecordingEdgeCaller()
+    worker = RecordingSharedWorker()
+    router = HybridToolRouter(
+        upstreams={
+            "example-stateless": UpstreamConfig(
+                name="example-stateless",
+                command="example-stateless",
+                tool_prefix="example",
+                mode="shared",
+                tags=("stateless", "shared-worker"),
+            )
+        },
+        shared_worker=SharedWorkerRoute(worker.call_tool),
+    )
+    call_args = {
+        "tenant_context": TENANT_CONTEXT,
+        "team_id": "team-a",
+        "quota_snapshot": _quota_snapshot(tool_name="example.echo"),
+    }
+    call_args[missing_field] = None
+
+    result = router.call_tool(
+        advertised_name="example.echo",
+        arguments={},
+        edge_caller=edge.call,
+        **call_args,
+    )
+
+    assert result["structuredContent"] == {"execution_boundary": "local_edge"}
+    assert worker.calls == []
+
+
+@pytest.mark.parametrize(
+    "local_state",
+    [
+        {"state_dir": "state"},
+        {"env": {"EXAMPLE": "value"}},
+        {"env_files": {"EXAMPLE": Path("example.env")}},
+        {"session_env": {"SESSION": "session_id"}},
+        {"request_meta": {"client": "client_name"}},
+    ],
+)
+def test_requires_local_state_checks_each_supported_source(
+    local_state: dict[str, object],
+) -> None:
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.hybrid_router import _requires_local_state
+
+    upstream = UpstreamConfig(
+        name="example-stateless",
+        command="example-stateless",
+        **local_state,
+    )
+
+    assert _requires_local_state(upstream) is True
+
+
+def test_shared_worker_dict_response_still_requires_valid_mcp_content() -> None:
+    from mcp_broker.broker import BrokerToolError
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.hybrid_router import HybridToolRouter, SharedWorkerRoute
+
+    router = HybridToolRouter(
+        upstreams={
+            "example-stateless": UpstreamConfig(
+                name="example-stateless",
+                command="example-stateless",
+                tool_prefix="example",
+                mode="shared",
+                tags=("stateless", "shared-worker"),
+            )
+        },
+        shared_worker=SharedWorkerRoute(
+            lambda **_: {"allowed": True, "result": {"content": "invalid"}}
+        ),
+    )
+
+    with pytest.raises(BrokerToolError) as exc_info:
+        router.call_tool(
+            advertised_name="example.echo",
+            arguments={},
+            edge_caller=RecordingEdgeCaller().call,
+            tenant_context=TENANT_CONTEXT,
+            team_id="team-a",
+            quota_snapshot=_quota_snapshot(tool_name="example.echo"),
+        )
+    assert exc_info.value.code == "invalid_upstream_response"
+    assert exc_info.value.message == (
+        "invalid upstream tools/call response from example-stateless"
+    )
+    assert exc_info.value.upstream_name == "example-stateless"
 
 
 class RecordingEdgeCaller:

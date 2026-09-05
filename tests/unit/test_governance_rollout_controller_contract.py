@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import runpy
+import sys
+from unittest.mock import Mock, mock_open
 
 import pytest
 
@@ -101,6 +104,30 @@ def test_rollout_controller_records_hold_when_approval_is_missing(
     assert record["changed_runtime_state"] is False
 
 
+def test_rollout_controller_records_hold_for_compatibility_rejection(
+    tmp_path: Path,
+) -> None:
+    from mcp_broker.governance_rollout_controller import control_rollout
+
+    result = control_rollout(
+        simulation={
+            "mode": "local_simulation_only",
+            "state": "compatibility_rejection",
+            "decisions": [],
+            "reasons": ["broker-a is not targeted"],
+        },
+        state_dir=tmp_path / "state",
+        operator="release-operator",
+        bundle=_bundle_metadata(),
+        created_at="2026-07-04T05:11:00Z",
+    )
+
+    record = json.loads(Path(result["action_paths"][0]).read_text(encoding="utf-8"))
+    assert record["action"] == "hold"
+    assert record["requires_approval"] is False
+    assert record["reasons"] == ["broker-a is not targeted"]
+
+
 def test_rollout_controller_records_rollback_actions_for_unhealthy_brokers(
     tmp_path: Path,
 ) -> None:
@@ -151,6 +178,171 @@ def test_rollout_controller_rejects_non_local_simulation(tmp_path: Path) -> None
         )
 
 
+@pytest.mark.parametrize(
+    ("simulation", "message"),
+    [
+        (
+            {"mode": "local_simulation_only", "decisions": [], "reasons": []},
+            "simulation state is required",
+        ),
+        (
+            {
+                "mode": "local_simulation_only",
+                "state": "ready",
+                "decisions": {},
+                "reasons": [],
+            },
+            "simulation decisions must be a list",
+        ),
+        (
+            {
+                "mode": "local_simulation_only",
+                "state": "ready",
+                "decisions": [],
+                "reasons": {},
+            },
+            "simulation reasons must be a list",
+        ),
+        (
+            {
+                "mode": "local_simulation_only",
+                "state": "ready",
+                "decisions": [],
+                "reasons": [],
+            },
+            "simulation decisions are required",
+        ),
+        (
+            {
+                "mode": "local_simulation_only",
+                "state": "ready",
+                "decisions": [{"broker_id": "broker-a", "stage": "canary", "state": "paused"}],
+                "reasons": [],
+            },
+            "unsupported decision state",
+        ),
+        (
+            {
+                "mode": "local_simulation_only",
+                "state": "ready",
+                "decisions": [{"stage": "canary", "state": "canary"}],
+                "reasons": [],
+            },
+            "broker_id is required",
+        ),
+    ],
+)
+def test_rollout_controller_rejects_malformed_simulation(
+    tmp_path: Path,
+    simulation: dict[str, object],
+    message: str,
+) -> None:
+    from mcp_broker.governance_rollout_controller import (
+        GovernanceRolloutControllerError,
+        control_rollout,
+    )
+
+    with pytest.raises(GovernanceRolloutControllerError, match=message):
+        control_rollout(
+            simulation=simulation,
+            state_dir=tmp_path / "state",
+            operator="release-operator",
+            bundle=_bundle_metadata(),
+            created_at="2026-07-04T05:30:00Z",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("bundle_id", "", "bundle_id is required"),
+        ("version", "", "bundle_version is required"),
+        ("channel", "", "bundle_channel is required"),
+        ("digest.algorithm", "", "digest algorithm is required"),
+        ("digest.value", "", "digest value is required"),
+    ],
+)
+def test_rollout_controller_rejects_bad_bundle_metadata(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    from mcp_broker.governance_rollout_controller import (
+        GovernanceRolloutControllerError,
+        control_rollout,
+    )
+
+    bundle = _bundle_metadata()
+    if field.startswith("digest."):
+        digest = bundle["digest"]
+        assert isinstance(digest, dict)
+        digest[field.split(".", maxsplit=1)[1]] = value
+    else:
+        bundle[field] = value
+
+    with pytest.raises(GovernanceRolloutControllerError, match=message):
+        control_rollout(
+            simulation=_ready_simulation(),
+            state_dir=tmp_path / "state",
+            operator="release-operator",
+            bundle=bundle,
+            created_at="2026-07-04T05:30:00Z",
+        )
+
+
+def test_rollout_controller_rejects_empty_operator(tmp_path: Path) -> None:
+    from mcp_broker.governance_rollout_controller import (
+        GovernanceRolloutControllerError,
+        control_rollout,
+    )
+
+    with pytest.raises(GovernanceRolloutControllerError, match="operator is required"):
+        control_rollout(
+            simulation=_ready_simulation(),
+            state_dir=tmp_path / "state",
+            operator=" ",
+            bundle=_bundle_metadata(),
+            created_at="2026-07-04T05:30:00Z",
+        )
+
+
+def test_rollout_controller_rejects_empty_sanitized_action_id_component() -> None:
+    from mcp_broker.governance_rollout_controller import (
+        GovernanceRolloutControllerError,
+        _safe_id_part,
+    )
+
+    with pytest.raises(GovernanceRolloutControllerError) as exc_info:
+        _safe_id_part("!!!")
+    assert str(exc_info.value) == "empty action id component"
+
+
+def test_rollout_controller_safe_id_preserves_valid_x_characters() -> None:
+    from mcp_broker.governance_rollout_controller import _safe_id_part
+
+    assert _safe_id_part("XvalueX") == "XvalueX"
+
+
+def test_rollout_controller_rejects_duplicate_action_records(tmp_path: Path) -> None:
+    from mcp_broker.governance_rollout_controller import (
+        GovernanceRolloutControllerError,
+        control_rollout,
+    )
+
+    kwargs = {
+        "simulation": _ready_simulation(),
+        "state_dir": tmp_path / "state",
+        "operator": "release-operator",
+        "bundle": _bundle_metadata(),
+        "created_at": "2026-07-04T05:30:00Z",
+    }
+    control_rollout(**kwargs)
+
+    with pytest.raises(GovernanceRolloutControllerError, match="rollout action already exists"):
+        control_rollout(**kwargs)
+
+
 def test_rollout_controller_cli_writes_records_and_prints_summary(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -188,6 +380,191 @@ def test_rollout_controller_cli_writes_records_and_prints_summary(
     assert "governance rollout actions recorded: 3" in stdout
     assert "record=" in stdout
     assert (tmp_path / "state" / "governance-rollout" / "action-log.jsonl").is_file()
+
+
+def test_rollout_controller_direct_cli_reports_errors(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from mcp_broker.governance_rollout_controller import main
+
+    simulation_path = tmp_path / "simulation.json"
+    simulation_path.write_text("[]", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--simulation",
+                str(simulation_path),
+                "--state-dir",
+                str(tmp_path / "state"),
+                "--operator",
+                "release-operator",
+                "--bundle-id",
+                "governance-bundle",
+                "--bundle-version",
+                "2026.07.04",
+                "--bundle-channel",
+                "stable",
+                "--bundle-digest",
+                "sha256:abc123",
+            ]
+        )
+        == 1
+    )
+    assert "expected JSON object" in capsys.readouterr().out
+
+
+def test_rollout_controller_cli_rejects_bad_digest(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from mcp_broker.governance_rollout_controller import main
+
+    simulation_path = tmp_path / "simulation.json"
+    simulation_path.write_text(json.dumps(_ready_simulation()), encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--simulation",
+                str(simulation_path),
+                "--state-dir",
+                str(tmp_path / "state"),
+                "--operator",
+                "release-operator",
+                "--bundle-id",
+                "governance-bundle",
+                "--bundle-version",
+                "2026.07.04",
+                "--bundle-channel",
+                "stable",
+                "--bundle-digest",
+                "sha256",
+            ]
+        )
+        == 1
+    )
+    assert "bundle digest must be algorithm:value" in capsys.readouterr().out
+
+
+def test_rollout_controller_digest_parser_preserves_value_delimiters_and_trims() -> None:
+    from mcp_broker.governance_rollout_controller import _parse_digest
+
+    assert _parse_digest(" sha256 : abc:def ") == {
+        "algorithm": "sha256",
+        "value": "abc:def",
+    }
+
+
+@pytest.mark.parametrize(
+    ("digest", "message"),
+    [
+        ("sha256", "bundle digest must be algorithm:value"),
+        (":abc123", "digest algorithm is required"),
+        ("sha256:", "digest value is required"),
+    ],
+)
+def test_rollout_controller_digest_parser_rejects_incomplete_values(
+    digest: str,
+    message: str,
+) -> None:
+    from mcp_broker.governance_rollout_controller import (
+        GovernanceRolloutControllerError,
+        _parse_digest,
+    )
+
+    with pytest.raises(GovernanceRolloutControllerError) as exc_info:
+        _parse_digest(digest)
+    assert str(exc_info.value) == message
+
+
+def test_rollout_controller_json_loader_opens_expanded_path_as_utf8() -> None:
+    from mcp_broker.governance_rollout_controller import _load_json_mapping
+
+    path = Mock()
+    expanded_path = Mock()
+    expanded_path.open = mock_open(read_data='{"state": "ready"}')
+    path.expanduser.return_value = expanded_path
+
+    assert _load_json_mapping(path) == {"state": "ready"}
+    path.expanduser.assert_called_once_with()
+    expanded_path.open.assert_called_once_with("r", encoding="utf-8")
+
+
+def test_rollout_controller_parser_has_exact_public_contract() -> None:
+    from mcp_broker.governance_rollout_controller import _parser
+
+    parser = _parser()
+    assert parser.description == "Record local rollout-control actions"
+    actions = {action.dest: action for action in parser._actions}
+    assert set(actions) == {
+        "help",
+        "simulation",
+        "state_dir",
+        "operator",
+        "bundle_id",
+        "bundle_version",
+        "bundle_channel",
+        "bundle_digest",
+        "created_at",
+    }
+    for name in {
+        "simulation",
+        "state_dir",
+        "operator",
+        "bundle_id",
+        "bundle_version",
+        "bundle_channel",
+        "bundle_digest",
+    }:
+        assert actions[name].required is True
+    assert actions["created_at"].required is False
+    assert actions["simulation"].type is Path
+    assert actions["state_dir"].type is Path
+
+
+@pytest.mark.error_simulation
+def test_rollout_controller_module_entrypoint_exits_with_main_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    simulation_path = tmp_path / "simulation.json"
+    simulation_path.write_text(json.dumps(_ready_simulation()), encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "governance_rollout_controller",
+            "--simulation",
+            str(simulation_path),
+            "--state-dir",
+            str(tmp_path / "state"),
+            "--operator",
+            "release-operator",
+            "--bundle-id",
+            "governance-bundle",
+            "--bundle-version",
+            "2026.07.04",
+            "--bundle-channel",
+            "stable",
+            "--bundle-digest",
+            "sha256:abc123",
+        ],
+    )
+
+    module_name = "mcp_broker.governance_rollout_controller"
+    previous_module = sys.modules.pop(module_name, None)
+    try:
+        with pytest.raises(SystemExit) as exit_info:
+            runpy.run_module(module_name, run_name="__main__")
+    finally:
+        if previous_module is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous_module
+
+    assert exit_info.value.code == 0
 
 
 def _ready_simulation() -> dict[str, object]:

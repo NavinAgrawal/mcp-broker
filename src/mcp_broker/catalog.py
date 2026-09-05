@@ -16,6 +16,7 @@ from mcp_broker.profiles import ToolExposureProfile
 ToolLister = Callable[[str, int], list[dict[str, object]]]
 ToolCaller = Callable[[str, str, dict[str, Any], int], dict[str, Any]]
 StatusProvider = Callable[[set[str] | None], dict[str, dict[str, object]]]
+SessionStopper = Callable[[str], dict[str, object]]
 _CLIENT_CONTROL_ARGUMENTS = frozenset({"wait_for_previous"})
 
 
@@ -30,6 +31,8 @@ class BrokerCatalogFacade:
         call_locks: dict[str, threading.Lock],
         status_provider: StatusProvider | None = None,
         client_cwd: str | None = None,
+        session_id: str | None = None,
+        session_stopper: SessionStopper | None = None,
     ) -> None:
         self._broker_config = broker_config
         self._profile = profile
@@ -38,6 +41,8 @@ class BrokerCatalogFacade:
         self._call_locks = call_locks
         self._status_provider = status_provider or (lambda _visible_upstreams: {})
         self._client_cwd = client_cwd
+        self._session_id = session_id
+        self._session_stopper = session_stopper
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         canonical_name = self._canonical_broker_tool_name(name)
@@ -49,6 +54,8 @@ class BrokerCatalogFacade:
             return self._call_managed_tool(arguments)
         if canonical_name == "broker.status":
             return self._status(arguments)
+        if canonical_name == "broker.close_session":
+            return self._close_session(arguments)
         raise BrokerToolError(code="unknown_broker_tool", message=f"unknown broker tool: {name}")
 
     def _canonical_broker_tool_name(self, name: str) -> str:
@@ -151,6 +158,18 @@ class BrokerCatalogFacade:
                 "upstreams": upstreams,
             }
         )
+
+    def _close_session(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        close_arguments = {
+            name: value
+            for name, value in arguments.items()
+            if name not in _CLIENT_CONTROL_ARGUMENTS
+        }
+        if close_arguments:
+            raise ValueError("broker.close_session does not accept arguments")
+        if self._session_id is None or self._session_stopper is None:
+            raise ValueError("broker.close_session requires broker session metadata")
+        return structured_tool_result(self._session_stopper(self._session_id))
 
     def _status_upstreams(self, health: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
         upstreams = {}

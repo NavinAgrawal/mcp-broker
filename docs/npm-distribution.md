@@ -36,28 +36,19 @@ The wrapper must not edit host Codex, Claude, AGY, Cursor, Windsurf, or LM Studi
 config files unless the user invokes an explicit broker command that already
 has that behavior in the Python CLI.
 
-## Auth And Publication
+## Auth and publication
 
-NPM trusted publishing is the preferred auth path. It uses GitHub Actions OIDC
-instead of a long-lived NPM token and publishes provenance for public packages
-from public repositories.
+Local publication is the default. GitHub Actions stays disabled. NPM uses the
+authenticated local npm configuration verified by `npm whoami`.
 
-Required package settings for trusted publishing:
+Required package settings:
 
 - Package name: `${NPM_PACKAGE_NAME}`
 - Visibility: public
-- Trusted publisher: GitHub Actions
 - Repository: `${GITHUB_REPO}`
-- Workflow file: `.github/workflows/publish-everywhere.yml`
 - Permission: publish
 
-Current publication uses a scoped `NPM_TOKEN` secret because the package scope
-does not have an OIDC trusted publisher configured yet. The workflow maps that
-secret to `NODE_AUTH_TOKEN`, while `npm publish --provenance` still signs
-provenance through the job's `id-token: write` permission.
-
-Move back to trusted publishing once the package scope supports the
-`.github/workflows/publish-everywhere.yml` publisher.
+The Make target runs `npm publish --access public` without Actions provenance.
 
 ## Release Policy
 
@@ -72,7 +63,7 @@ make release-check RELEASE_VERSION=<semver>
 make public-export-check PUBLIC_REPO=$PUBLIC_REPO
 ```
 
-Final publication happens through the one-shot CI release target:
+Final publication happens through the one-shot local release target:
 
 ```bash
 make release RELEASE_APPLY=1

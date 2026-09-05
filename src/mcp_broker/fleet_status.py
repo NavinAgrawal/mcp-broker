@@ -15,6 +15,7 @@ from mcp_broker.fleet_collection import FleetCollectionError, prepare_collection
 
 
 _REDACTED = "[redacted]"
+STATUS_TEXT_ENCODING = "utf-8"
 _EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 _SENSITIVE_WORDS = ("secret", "token", "credential", "password", "key")
 _IDENTITY_FIELDS = (
@@ -56,7 +57,9 @@ def export_fleet_status(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    snapshot = json.loads(args.status_file.expanduser().read_text(encoding="utf-8"))
+    snapshot = json.loads(
+        args.status_file.expanduser().read_bytes().decode(STATUS_TEXT_ENCODING)
+    )
     payload = export_fleet_status(snapshot)
     if args.target_url:
         try:

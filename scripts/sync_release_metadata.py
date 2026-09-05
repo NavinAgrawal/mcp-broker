@@ -75,6 +75,10 @@ def _json_metadata_updates(version: str) -> dict[str, dict[str, Any]]:
     npm_package["version"] = version
     updates["npm/package.json"] = npm_package
 
+    plugin_manifest = _load_json(ROOT / ".codex-plugin" / "plugin.json")
+    plugin_manifest["version"] = version
+    updates[".codex-plugin/plugin.json"] = plugin_manifest
+
     for relative in ["registry/server.json", "registry/server.template.json"]:
         metadata = _load_json(ROOT / relative)
         metadata["version"] = version

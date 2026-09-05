@@ -23,10 +23,13 @@ from mcp_broker.runtime_install import RuntimeInstallError, RuntimeInstallStore
 
 
 ACTIVE_RUNTIME_POINTER = "active-runtime.json"
+ATOMIC_JSON_TEMP_SUFFIX = ".tmp"
 BOOTSTRAP_SMOKE_ARGS = ("--help",)
 BOOTSTRAP_SMOKE_TIMEOUT_SECONDS = 10
 EXTRACTED_RUNTIMES_DIR = "extracted-runtimes"
+JSON_INDENT = 2
 PREVIOUS_RUNTIME_POINTER = "previous-runtime.json"
+TEXT_ENCODING = "utf-8"
 
 
 class BootstrapTransactionError(ValueError):
@@ -172,21 +175,32 @@ class BootstrapTransactionStore:
 
     def _plan(self, metadata_path: Path) -> dict[str, object]:
         metadata_file = metadata_path.expanduser()
-        artifact_report = RuntimeArtifactVerifier().verify_metadata_file(metadata_file)
+        if not metadata_file.is_file():
+            raise BootstrapTransactionError(f"runtime artifact metadata not found: {metadata_file}")
         metadata = _load_metadata(metadata_file)
+        version = _required_string(metadata, "version", metadata_file)
+        artifact_digest = _required_string(metadata, "artifact_digest", metadata_file)
+        _required_string(metadata, "artifact_path", metadata_file)
+        entrypoint_value = _required_string(metadata, "entrypoint", metadata_file)
+        runtime_path_value = _required_string(metadata, "runtime_path", metadata_file)
         runtime_path = _metadata_runtime_path(
             metadata_file.parent,
-            _required_string(metadata, "runtime_path", metadata_file),
+            runtime_path_value,
         )
+        _require_runtime_entrypoint(runtime_path, entrypoint_value)
+        try:
+            artifact_report = RuntimeArtifactVerifier().verify_metadata_file(metadata_file)
+        except RuntimeArtifactError as exc:
+            raise BootstrapTransactionError(str(exc)) from exc
         entrypoint = str(artifact_report["entrypoint"])
         _require_runtime_entrypoint(runtime_path, entrypoint)
         plan = {
-            "artifact_digest": _required_string(metadata, "artifact_digest", metadata_file),
+            "artifact_digest": artifact_digest,
             "artifact_path": artifact_report["artifact_path"],
             "entrypoint": entrypoint,
             "metadata_path": str(metadata_file),
             "runtime_path": str(runtime_path),
-            "version": artifact_report["version"],
+            "version": artifact_report.get("version", version),
         }
         return {**plan, "transaction_id": _transaction_id(plan)}
 
@@ -203,7 +217,7 @@ class BootstrapTransactionStore:
 
     def _append_journal(self, entry: dict[str, object]) -> None:
         self.bootstrap_dir.mkdir(parents=True, exist_ok=True)
-        with self.journal_path.open("a", encoding="utf-8") as handle:
+        with self.journal_path.open("a", encoding=TEXT_ENCODING) as handle:
             handle.write(
                 json.dumps({**entry, "ts": _utc_now()}, sort_keys=True, separators=(",", ":"))
                 + "\n"
@@ -291,8 +305,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     ) as exc:
         sys.stderr.write(f"{exc}\n")
         return 1
-    sys.stdout.write(json.dumps(report, sort_keys=True) + "\n")
+    sys.stdout.write(_serialize_report(report) + "\n")
     return 0
+
+
+def _serialize_report(report: dict[str, object]) -> str:
+    return json.dumps(report, sort_keys=True)
 
 
 def _parse_args(argv: Sequence[str] | None) -> Any:
@@ -316,7 +334,7 @@ def _parse_args(argv: Sequence[str] | None) -> Any:
 
 
 def _load_metadata(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding=TEXT_ENCODING) as handle:
         loaded = json.load(handle)
     if not isinstance(loaded, dict):
         raise BootstrapTransactionError(f"runtime metadata must be an object: {path}")
@@ -332,10 +350,8 @@ def _required_string(data: dict[str, Any], field: str, path: Path) -> str:
 
 def _metadata_runtime_path(metadata_dir: Path, runtime_path: str) -> Path:
     candidate = Path(runtime_path)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        raise BootstrapTransactionError("runtime path must stay inside metadata directory")
-    resolved = (metadata_dir / candidate).resolve(strict=False)
-    if not _is_relative_to(resolved, metadata_dir.resolve(strict=False)):
+    resolved = (metadata_dir / candidate).resolve()
+    if not _is_relative_to(resolved, metadata_dir.resolve()):
         raise BootstrapTransactionError("runtime path must stay inside metadata directory")
     if not resolved.is_dir():
         raise BootstrapTransactionError(f"runtime path not found: {resolved}")
@@ -343,15 +359,15 @@ def _metadata_runtime_path(metadata_dir: Path, runtime_path: str) -> Path:
 
 
 def _require_runtime_entrypoint(runtime_path: Path, entrypoint: str) -> None:
-    entrypoint_path = (runtime_path / entrypoint).resolve(strict=False)
-    if not _is_relative_to(entrypoint_path, runtime_path.resolve(strict=False)):
+    entrypoint_path = (runtime_path / entrypoint).resolve()
+    if not _is_relative_to(entrypoint_path, runtime_path.resolve()):
         raise BootstrapTransactionError("runtime entrypoint must stay inside runtime path")
     if not entrypoint_path.is_file() or not os.access(entrypoint_path, os.X_OK):
         raise BootstrapTransactionError(f"runtime entrypoint is not executable: {entrypoint}")
 
 
 def _transaction_id(payload: dict[str, object]) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(TEXT_ENCODING)
     return hashlib.sha256(encoded).hexdigest()[:16]
 
 
@@ -371,8 +387,8 @@ def _read_latest_pointer(path: Path, *, records_dir: Path) -> dict[str, str] | N
     data = _read_json(path)
     transaction_id = _json_string(data, "transaction_id", path)
     record_path = Path(_json_string(data, "record_path", path)).expanduser()
-    resolved_record = record_path.resolve(strict=False)
-    resolved_records_dir = records_dir.expanduser().resolve(strict=False)
+    resolved_record = record_path.resolve()
+    resolved_records_dir = records_dir.expanduser().resolve()
     if (
         not _valid_transaction_id(transaction_id)
         or not _is_relative_to(resolved_record, resolved_records_dir)
@@ -408,7 +424,7 @@ def _pointer_id(pointer: dict[str, str] | None) -> str | None:
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:
-        with path.open("r", encoding="utf-8") as handle:
+        with path.open("r", encoding=TEXT_ENCODING) as handle:
             loaded = json.load(handle)
     except json.JSONDecodeError as exc:
         raise BootstrapTransactionError(f"invalid runtime bootstrap JSON: {path}") from exc
@@ -426,8 +442,10 @@ def _json_string(data: dict[str, Any], field: str, path: Path) -> str:
 
 def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path = path.with_suffix(path.suffix + ATOMIC_JSON_TEMP_SUFFIX)
+    tmp_path.write_bytes(
+        (json.dumps(payload, indent=JSON_INDENT, sort_keys=True) + "\n").encode(TEXT_ENCODING)
+    )
     tmp_path.replace(path)
 
 
@@ -480,7 +498,7 @@ def _extract_tar_archive(artifact_path: Path, destination: Path) -> None:
     with tarfile.open(artifact_path) as archive:
         for member in archive.getmembers():
             archive_member = _safe_archive_member(member.name)
-            if member.issym() or member.islnk() or not (member.isfile() or member.isdir()):
+            if not member.isfile() and not member.isdir():
                 raise BootstrapTransactionError(f"unsafe archive member: {member.name}")
             target = _archive_target(destination, archive_member)
             if member.isdir():
@@ -499,16 +517,12 @@ def _extract_tar_archive(artifact_path: Path, destination: Path) -> None:
 def _safe_archive_member(member_name: str) -> str:
     normalized = posixpath.normpath(member_name)
     raw_parts = tuple(part for part in member_name.split("/") if part)
-    parts = tuple(part for part in normalized.split("/") if part)
     if (
         not member_name.strip()
         or "\\" in member_name
         or _is_windows_drive_path(member_name)
-        or _is_windows_drive_path(normalized)
         or ".." in raw_parts
-        or ".." in parts
-        or normalized in {"..", "."}
-        or normalized.startswith("../")
+        or normalized == "."
         or posixpath.isabs(member_name)
     ):
         raise BootstrapTransactionError(f"unsafe archive member: {member_name}")
@@ -516,8 +530,8 @@ def _safe_archive_member(member_name: str) -> str:
 
 
 def _archive_target(destination: Path, member: str) -> Path:
-    target = (destination / member).resolve(strict=False)
-    if not _is_relative_to(target, destination.resolve(strict=False)):
+    target = (destination / member).resolve()
+    if not _is_relative_to(target, destination.resolve()):
         raise BootstrapTransactionError(f"unsafe archive member: {member}")
     return target
 
@@ -528,18 +542,18 @@ def _zip_info_is_symlink(info: zipfile.ZipInfo) -> bool:
 
 
 def _prepare_empty_dir(path: Path, allowed_root: Path) -> None:
-    resolved_path = path.resolve(strict=False)
-    resolved_root = allowed_root.resolve(strict=False)
+    resolved_path = path.resolve()
+    resolved_root = allowed_root.resolve()
     if not _is_relative_to(resolved_path, resolved_root):
         raise BootstrapTransactionError("extracted runtime path is outside runtime install root")
     if path.exists():
         shutil.rmtree(path)
-    path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(parents=True)
 
 
 def _remove_extracted_runtime(path: Path, allowed_root: Path) -> None:
-    resolved_path = path.resolve(strict=False)
-    resolved_root = allowed_root.resolve(strict=False)
+    resolved_path = path.resolve()
+    resolved_root = allowed_root.resolve()
     if _is_relative_to(resolved_path, resolved_root) and path.exists():
         shutil.rmtree(path)
 
@@ -549,8 +563,7 @@ def _valid_transaction_id(transaction_id: str) -> bool:
 
 
 def _is_windows_drive_path(path: str) -> bool:
-    first_part = path.split("/", 1)[0]
-    return len(first_part) >= 2 and first_part[1] == ":" and first_part[0].isalpha()
+    return len(path) >= 2 and path[1] == ":" and path[0].isalpha()
 
 
 def _require_approval(approved: bool, message: str) -> None:
