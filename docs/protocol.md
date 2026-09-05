@@ -37,6 +37,11 @@ methods for local management:
 - `broker/health`
 - `broker/stop`
 
+Socket reads are bounded by `broker.socket_read_timeout_seconds` and
+`broker.socket_max_request_bytes`. The public defaults are 30 seconds and
+16,777,216 bytes. The byte limit covers attachment-bearing requests while
+preventing a stalled or oversized client from holding a connection thread.
+
 These control methods are for the local daemon and Makefile targets. The Codex
 and Claude shim will still speak MCP over stdio after the client shim task is
 implemented.
@@ -113,6 +118,11 @@ starting it.
 allows only one `tools/call` at a time for write-capable or fragile servers.
 Use this for shared local-user auth MCPs when one account or token cache should
 be reused but writes can conflict.
+
+`broker_close_session` releases only `per_session` upstreams associated with
+the calling broker session. It takes no session identifier argument: the daemon
+uses the client-shim session metadata, so one client cannot close another
+client's upstreams. Shared upstreams remain running.
 
 ## Status Visibility
 

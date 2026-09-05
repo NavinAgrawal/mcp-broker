@@ -36,6 +36,7 @@ from mcp_broker.jsonrpc import JsonRpcRequest, JsonRpcResponse
 from mcp_broker.protocol import McpProtocolHandler
 from mcp_broker.runtime_reaper import RuntimePaths, write_socket_metadata
 from mcp_broker.shared_worker import SharedWorkerRuntime
+from mcp_broker.schema import DEFAULT_SOCKET_MAX_REQUEST_BYTES, DEFAULT_SOCKET_READ_TIMEOUT_SECONDS
 from mcp_broker.upstream_http import HttpUpstreamClient, HttpUpstreamError
 from mcp_broker.upstream_protocols import (
     HttpUpstreamClientProtocol,
@@ -54,6 +55,7 @@ from mcp_broker.upstream_stdio import (
 # idle_timeout_seconds; the worst case is an upstream living one interval past
 # its timeout, which is irrelevant against the FD leak this reaper closes.
 JANITOR_SWEEP_INTERVAL_SECONDS = 30
+SOCKET_READ_CHUNK_BYTES = 65_536
 
 
 def _git_sha(source_dir: Path) -> str | None:
@@ -70,6 +72,10 @@ def _source_provenance() -> dict[str, str]:
 
 class BrokerDaemonError(Exception):
     """Raised when daemon lifecycle operations fail."""
+
+
+class BrokerRequestTooLarge(BrokerDaemonError):
+    """Raised when a socket request exceeds its configured byte limit."""
 
 
 @dataclass
@@ -106,6 +112,17 @@ class BrokerDaemon(
         self._status_snapshot_lock = threading.Lock()
         self._stop_logged = False
         self._started_at: str | None = None
+        broker_settings = self.broker_config.broker if self.broker_config is not None else None
+        self._socket_read_timeout_seconds = (
+            broker_settings.socket_read_timeout_seconds
+            if broker_settings is not None
+            else DEFAULT_SOCKET_READ_TIMEOUT_SECONDS
+        )
+        self._socket_max_request_bytes = (
+            broker_settings.socket_max_request_bytes
+            if broker_settings is not None
+            else DEFAULT_SOCKET_MAX_REQUEST_BYTES
+        )
         self._requests_total = 0
         self._request_errors_total = 0
         self._last_request_method: str | None = None
@@ -216,11 +233,20 @@ class BrokerDaemon(
         thread.start()
 
     def _handle_connection_with_context(self, connection: socket.socket) -> None:
+        connection.settimeout(self._socket_read_timeout_seconds)
         with connection:
             self._handle_connection(connection)
 
     def _handle_connection(self, connection: socket.socket) -> None:
-        raw = connection.recv(65536)
+        try:
+            raw = self._read_request(connection)
+        except socket.timeout:
+            return
+        except BrokerRequestTooLarge as exc:
+            response = JsonRpcResponse.error(None, -32600, str(exc)).to_mapping()
+            self._send_response(connection, response)
+            self._write_request_log_safely(None, None, response)
+            return
         if not raw:
             return
         try:
@@ -237,8 +263,28 @@ class BrokerDaemon(
             if request.get("method") == "broker/stop":
                 self._wake_server()
 
+    def _read_request(self, connection: socket.socket) -> bytes:
+        chunks: list[bytes] = []
+        total_bytes = 0
+        while True:
+            chunk = connection.recv(SOCKET_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total_bytes += len(chunk)
+            if total_bytes > self._socket_max_request_bytes:
+                raise BrokerRequestTooLarge(
+                    f"Request exceeds {self._socket_max_request_bytes} bytes"
+                )
+            if chunk.endswith(b"\n"):
+                break
+        return b"".join(chunks)
+
     def _send_response(self, connection: socket.socket, response: dict[str, object]) -> None:
-        connection.sendall(json.dumps(response, sort_keys=True).encode("utf-8") + b"\n")
+        try:
+            connection.sendall(json.dumps(response, sort_keys=True).encode("utf-8") + b"\n")
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def _handle_request(self, request: dict[str, object]) -> dict[str, object] | None:
         request_id = request.get("id")
@@ -531,9 +577,10 @@ class BrokerDaemon(
         *,
         now: float | None = None,
     ) -> list[tuple[str | tuple[str, str], StdioUpstreamClientProtocol, tuple[int, ...]]]:
-        """Stop and evict per-session stdio upstreams idle past their timeout.
+        """Stop and evict dead stdio clients or idle per-session clients.
 
-        Per-session only (tuple keys); shared upstreams are long-lived by design.
+        Shared upstreams remain long-lived while running, but every exited client
+        is reaped so its stdio pipes do not remain open until daemon shutdown.
         Snapshot under the registry lock, stop OUTSIDE it (stop() SIGKILLs a
         process group and can be slow), then re-acquire to pop - but only the exact
         client we stopped, so a session that re-created the upstream under the same
@@ -541,26 +588,29 @@ class BrokerDaemon(
         """
         current = time.monotonic() if now is None else now
         with self._stdio_upstreams_lock:
-            snapshot = [
-                (key, client)
-                for key, client in self._stdio_upstreams.items()
-                if isinstance(key, tuple)
-            ]
+            snapshot = list(self._stdio_upstreams.items())
         reaped: list[
             tuple[str | tuple[str, str], StdioUpstreamClientProtocol, tuple[int, ...]]
         ] = []
+        reaped_events: list[tuple[str | tuple[str, str], tuple[int, ...], str]] = []
         for key, client in snapshot:
-            timeout = client.upstream.resources.idle_timeout_seconds
-            if timeout <= 0 or client.idle_seconds(now=current) < timeout:
-                continue
+            exited = client.status == "exited"
+            if not exited:
+                if not isinstance(key, tuple):
+                    continue
+                timeout = client.upstream.resources.idle_timeout_seconds
+                if timeout <= 0 or client.idle_seconds(now=current) < timeout:
+                    continue
             remaining = client.stop()
             with self._stdio_upstreams_lock:
                 if self._stdio_upstreams.get(key) is client:
                     self._stdio_upstreams.pop(key, None)
                     reaped.append((key, client, remaining))
-        for key, _client, remaining in reaped:
+                    event = "upstream.reaped_exited" if exited else "upstream.reaped_idle"
+                    reaped_events.append((key, remaining, event))
+        for key, remaining, event in reaped_events:
             self._write_log(
-                "upstream.reaped_idle",
+                event,
                 upstream=_stdio_client_name(key),
                 remaining_broker_processes=sorted(set(remaining)),
             )

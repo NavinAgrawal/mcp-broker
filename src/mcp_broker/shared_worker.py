@@ -155,7 +155,7 @@ def _execute_fake_tool(
     sandbox: _WorkerSandbox,
 ) -> dict[str, Any]:
     if tool.behavior == "echo":
-        message = arguments.get("message", "")
+        message = arguments.get("message")
         if not isinstance(message, str):
             message = ""
         return {

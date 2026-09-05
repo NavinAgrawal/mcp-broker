@@ -10,8 +10,15 @@ import pytest
 
 pytestmark = pytest.mark.journey
 
+PROCESS_START_TIMEOUT_SECONDS = 5.0
 
-def _wait_for_file_text(path: Path, expected: str, *, timeout_seconds: float = 2.0) -> str:
+
+def _wait_for_file_text(
+    path: Path,
+    expected: str,
+    *,
+    timeout_seconds: float = PROCESS_START_TIMEOUT_SECONDS,
+) -> str:
     deadline = time.monotonic() + timeout_seconds
     last_text = ""
     while time.monotonic() < deadline:
@@ -23,7 +30,11 @@ def _wait_for_file_text(path: Path, expected: str, *, timeout_seconds: float = 2
     return last_text
 
 
-def _wait_for_file_int(path: Path, *, timeout_seconds: float = 2.0) -> int:
+def _wait_for_file_int(
+    path: Path,
+    *,
+    timeout_seconds: float = PROCESS_START_TIMEOUT_SECONDS,
+) -> int:
     deadline = time.monotonic() + timeout_seconds
     last_text = ""
     while time.monotonic() < deadline:
@@ -467,12 +478,21 @@ while True:
     try:
         supervisor.start()
         assert _wait_for_file_text(ready_file, "ready") == "ready"
+        process = supervisor._process
+        assert process is not None
+        wait_timeouts: list[float | None] = []
+
+        def timeout_wait(timeout: float | None = None) -> int:
+            wait_timeouts.append(timeout)
+            raise subprocess.TimeoutExpired(process.args, timeout)
 
         with monkeypatch.context() as patch:
             patch.setattr(upstream_process, "KILL_WAIT_SECONDS", 0.0)
+            patch.setattr(process, "wait", timeout_wait)
             with pytest.raises(subprocess.TimeoutExpired):
                 supervisor.stop(timeout_seconds=0.0)
 
+        assert wait_timeouts == [0.0, 0.0]
         assert supervisor.state == UpstreamState.FAILED
         assert UpstreamState.FAILED in supervisor.state_history
         assert '"state": "failed"' in supervisor.state_snapshot_path.read_text(encoding="utf-8")

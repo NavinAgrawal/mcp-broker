@@ -36,13 +36,17 @@ from mcp_broker.schema import (
     DEFAULT_CPU_WATCHDOG_PERCENT,
     DEFAULT_CPU_WATCHDOG_SECONDS,
     DEFAULT_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_SOCKET_MAX_REQUEST_BYTES,
+    DEFAULT_SOCKET_READ_TIMEOUT_SECONDS,
     HealthPolicy,
     ResourcePolicy,
     RestartPolicy,
     SmokeProbe,
     parse_mode,
+    parse_positive_int as _parse_positive_broker_int,
     parse_profiles,
     parse_startup_timeout,
+    parse_tool_timeouts as _parse_tool_timeouts,
     parse_transport,
 )
 from mcp_broker.profiles import ToolExposureProfile
@@ -163,9 +167,29 @@ class BrokerSettings:
     identity: BrokerIdentityConfig = field(default_factory=BrokerIdentityConfig)
     tool_namespace_separator: str = "."
     idle_timeout_seconds: int = DEFAULT_IDLE_TIMEOUT_SECONDS
+    socket_read_timeout_seconds: int = DEFAULT_SOCKET_READ_TIMEOUT_SECONDS
+    socket_max_request_bytes: int = DEFAULT_SOCKET_MAX_REQUEST_BYTES
     cpu_watchdog_percent: int = DEFAULT_CPU_WATCHDOG_PERCENT
     cpu_watchdog_seconds: int = DEFAULT_CPU_WATCHDOG_SECONDS
     remote_auth: RemoteBrokerAuthConfig = field(default_factory=RemoteBrokerAuthConfig)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "socket_read_timeout_seconds",
+            _parse_positive_broker_int(
+                "broker.socket_read_timeout_seconds",
+                self.socket_read_timeout_seconds,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "socket_max_request_bytes",
+            _parse_positive_broker_int(
+                "broker.socket_max_request_bytes",
+                self.socket_max_request_bytes,
+            ),
+        )
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any], *, runtime: RuntimeConfig) -> "BrokerSettings":
@@ -174,6 +198,14 @@ class BrokerSettings:
             identity=BrokerIdentityConfig.from_mapping(data.get("identity")),
             tool_namespace_separator=str(data.get("tool_namespace_separator", ".")),
             idle_timeout_seconds=int(data.get("idle_timeout_seconds", DEFAULT_IDLE_TIMEOUT_SECONDS)),
+            socket_read_timeout_seconds=_parse_positive_broker_int(
+                "broker.socket_read_timeout_seconds",
+                data.get("socket_read_timeout_seconds", DEFAULT_SOCKET_READ_TIMEOUT_SECONDS),
+            ),
+            socket_max_request_bytes=_parse_positive_broker_int(
+                "broker.socket_max_request_bytes",
+                data.get("socket_max_request_bytes", DEFAULT_SOCKET_MAX_REQUEST_BYTES),
+            ),
             cpu_watchdog_percent=int(data.get("cpu_watchdog_percent", DEFAULT_CPU_WATCHDOG_PERCENT)),
             cpu_watchdog_seconds=int(data.get("cpu_watchdog_seconds", DEFAULT_CPU_WATCHDOG_SECONDS)),
             remote_auth=RemoteBrokerAuthConfig.from_mapping(
@@ -533,25 +565,6 @@ def _parse_upstream_policies(name: str, data: dict[str, Any]) -> _UpstreamPolici
             data.get("resources"),
         ),
     }
-
-
-def _parse_tool_timeouts(path: str, value: Any) -> dict[str, int]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must be a mapping")
-    parsed: dict[str, int] = {}
-    for tool_name, timeout_seconds in value.items():
-        if not isinstance(tool_name, str) or not tool_name:
-            raise ValueError(f"{path} keys must be non-empty tool names")
-        if isinstance(timeout_seconds, bool):
-            raise ValueError(f"{path}.{tool_name} must be greater than 0")
-        try:
-            parsed_timeout = int(timeout_seconds)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{path}.{tool_name} must be greater than 0") from exc
-        if parsed_timeout <= 0:
-            raise ValueError(f"{path}.{tool_name} must be greater than 0")
-        parsed[tool_name] = parsed_timeout
-    return parsed
 
 
 def _parse_auth_probe(

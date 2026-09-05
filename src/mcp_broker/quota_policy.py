@@ -165,16 +165,16 @@ def _scoped_limit_record(
 
 def _limit_count(record: Mapping[str, Any]) -> int:
     value = record.get("limit")
-    if not isinstance(value, int) or value < 0:
+    if not isinstance(value, int):
         return 0
-    return value
+    return max(0, value)
 
 
 def _used_count(record: Mapping[str, Any]) -> int:
     value = record.get("used")
-    if not isinstance(value, int) or value < 0:
+    if not isinstance(value, int):
         return 0
-    return value
+    return max(0, value)
 
 
 def _audit_event(

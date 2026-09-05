@@ -37,7 +37,7 @@ def simulate_rollout(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    bundle = json.loads(args.bundle.expanduser().read_text(encoding="utf-8"))
+    bundle = json.loads(args.bundle.expanduser().read_bytes())
     fleet_statuses = _load_fleet_statuses(args.fleet_status.expanduser())
     sys.stdout.write(
         json.dumps(
@@ -62,7 +62,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _load_fleet_statuses(path: Path) -> list[dict[str, Any]]:
-    loaded = json.loads(path.read_text(encoding="utf-8"))
+    loaded = json.loads(path.read_bytes())
     if isinstance(loaded, list):
         return [_mapping(item) for item in loaded]
     return [_mapping(loaded)]

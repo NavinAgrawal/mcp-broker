@@ -39,6 +39,7 @@ class BrokerDaemonToolCallMixin:
                 list_upstream=list_upstream,
                 call_upstream=call_upstream,
                 session_context=session_context,
+                session_id=session_id,
             )
         return self._handle_upstream_tool_call(
             request_id=request.id,
@@ -60,6 +61,7 @@ class BrokerDaemonToolCallMixin:
         list_upstream: Any,
         call_upstream: Any,
         session_context: dict[str, str],
+        session_id: str | None,
     ) -> JsonRpcResponse:
         try:
             result = BrokerCatalogFacade(
@@ -70,6 +72,8 @@ class BrokerDaemonToolCallMixin:
                 call_locks=self._upstream_call_locks,
                 status_provider=self._upstream_health_for_status,
                 client_cwd=session_context.get("client_cwd"),
+                session_id=session_id,
+                session_stopper=self._shutdown_session_upstreams,
             ).call_tool(name, arguments)
         except (BrokerToolError, ValueError) as exc:
             return JsonRpcResponse.error(request_id, -32000, str(exc))

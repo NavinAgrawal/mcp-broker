@@ -24,17 +24,10 @@ def test_plugin_bootstrap_preflight_verifies_metadata_without_state_writes(
     metadata_path = _write_runtime_package(tmp_path / "package")
     runtime_root = tmp_path / "runtime-root"
 
-    result = subprocess.run(
-        make_command(
-            "plugin-bootstrap-preflight",
-            f"BOOTSTRAP_METADATA={metadata_path}",
-            f"RUNTIME_ROOT={runtime_root}",
-        ),
-        cwd=ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    result = _run_make(
+        "plugin-bootstrap-preflight",
+        f"BOOTSTRAP_METADATA={metadata_path}",
+        f"RUNTIME_ROOT={runtime_root}",
     )
 
     assert '"status": "preflight_passed"' in result.stdout
@@ -105,14 +98,20 @@ def test_plugin_bootstrap_apply_status_rollback_and_uninstall_lifecycle(
 
 
 def _run_make(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    result = subprocess.run(
         make_command(*args),
         cwd=ROOT,
-        check=True,
+        check=False,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    assert result.returncode == 0, (
+        f"make {' '.join(args)} failed with {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    return result
 
 
 def _last_json(output: str) -> dict[str, object]:

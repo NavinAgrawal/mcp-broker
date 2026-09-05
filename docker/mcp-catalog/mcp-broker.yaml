@@ -1,5 +1,5 @@
 name: mcp-broker
 title: mcp-broker
 type: server
-image: docker.io/doricstack/mcp-broker:2.0.0
+image: docker.io/doricstack/mcp-broker:2.1.0
 description: Local MCP broker that exposes configured upstream MCP servers through one compact client entry.

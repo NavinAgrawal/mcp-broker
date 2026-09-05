@@ -168,6 +168,22 @@ _COMPACT_BROKER_TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "broker.close_session": {
+        "description": (
+            "Release the broker-owned per-session upstream processes for the current client session. "
+            "Use this after shutting down a client session when its session-scoped MCP subprocesses "
+            "must exit promptly. This never stops shared upstreams or another client's session."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "description": (
+                "Close request for the calling broker session. The broker takes the session identity "
+                "from client transport metadata; user arguments are not accepted."
+            ),
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
 }
 
 

@@ -188,3 +188,13 @@ def test_publish_bundle_rejects_incomplete_provenance(tmp_path: Path) -> None:
             provenance={"repository": "mcp-broker", "builder": "local-publisher"},
             promotion_state="candidate",
         )
+
+
+def test_defensive_publish_bundle_loader_rejects_non_object_json(tmp_path: Path) -> None:
+    from mcp_broker.governance_publish import GovernancePublishError, _load_bundle
+
+    bundle_path = tmp_path / "bundle.json"
+    bundle_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(GovernancePublishError, match="bundle file must contain a JSON object"):
+        _load_bundle(bundle_path)

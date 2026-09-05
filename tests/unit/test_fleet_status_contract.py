@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from argparse import Namespace
 import json
 from pathlib import Path
 
@@ -153,3 +154,239 @@ def test_fleet_status_cli_exports_redacted_json(
     assert "${HOME}" not in output
     assert "engineer@example.com" not in output
     assert "secret" not in output
+
+
+def test_fleet_status_direct_cli_wraps_collection_envelope(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from mcp_broker.fleet_status import main
+
+    status_file = tmp_path / "broker-status.json"
+    status_file.write_text(json.dumps(_status_snapshot()), encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "--status-file",
+                str(status_file),
+                "--target-url",
+                "https://control-plane.example/fleet",
+                "--auth-ref",
+                "env:FLEET_TOKEN",
+                "--retention-days",
+                "7",
+                "--generated-at",
+                "2026-07-01T12:00:00+00:00",
+                "--collector-id",
+                "collector-a",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["upload"]["target_url"] == "https://control-plane.example/fleet"
+    assert payload["upload"]["auth_ref"] == "env:FLEET_TOKEN"
+    assert payload["collector"]["id"] == "collector-a"
+    assert payload["payload"]["identity"]["broker_id"] == "engineer-laptop"
+
+
+@pytest.mark.error_simulation
+def test_fleet_status_collect_handler_omits_generated_at_when_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mcp_broker import cli_fleet_status
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli_fleet_status, "fleet_status_main", lambda argv: calls.append(argv) or 0)
+
+    assert (
+        cli_fleet_status.handle_fleet_status_collect(
+            Namespace(
+                status_file=tmp_path / "broker-status.json",
+                target_url="https://control-plane.example/fleet",
+                auth_ref="env:FLEET_TOKEN",
+                retention_days=7,
+                collector_id="collector-a",
+                generated_at=None,
+            )
+        )
+        == 0
+    )
+
+    assert calls == [
+        [
+            "--status-file",
+            str(tmp_path / "broker-status.json"),
+            "--target-url",
+            "https://control-plane.example/fleet",
+            "--auth-ref",
+            "env:FLEET_TOKEN",
+            "--retention-days",
+            "7",
+            "--collector-id",
+            "collector-a",
+        ]
+    ]
+
+
+def test_fleet_status_direct_cli_reports_collection_errors(tmp_path: Path) -> None:
+    from mcp_broker.fleet_status import main
+
+    status_file = tmp_path / "broker-status.json"
+    status_file.write_text(json.dumps(_status_snapshot()), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="auth_ref"):
+        main(
+            [
+                "--status-file",
+                str(status_file),
+                "--target-url",
+                "https://control-plane.example/fleet",
+            ]
+        )
+
+
+def test_export_fleet_status_redacts_tuple_values() -> None:
+    from mcp_broker.fleet_status import export_fleet_status
+
+    snapshot = {
+        "identity": {"broker_id": "broker-a"},
+        "upstreams": {
+            "mail": {
+                "last_error": ("token expired", "engineer@example.com"),
+                "enabled": True,
+            }
+        },
+    }
+
+    payload = export_fleet_status(snapshot)
+
+    assert payload["upstreams"]["mail"]["last_error"] == ["[redacted]", "[redacted]"]
+
+
+def test_export_fleet_status_redacts_nested_mapping_values() -> None:
+    from mcp_broker.fleet_status import export_fleet_status
+
+    snapshot = {
+        "identity": {"broker_id": "broker-a"},
+        "upstreams": {
+            "mail": {
+                "last_error": {
+                    "message": "token expired",
+                    "detail": "engineer@example.com",
+                },
+                "enabled": True,
+            }
+        },
+    }
+
+    payload = export_fleet_status(snapshot)
+
+    assert payload["upstreams"]["mail"]["last_error"] == {
+        "detail": "[redacted]",
+        "message": "[redacted]",
+    }
+
+
+def test_fleet_status_parser_exposes_description_and_requires_status_file() -> None:
+    from mcp_broker.fleet_status import _parser
+
+    parser = _parser()
+
+    assert parser.description == "Export a redacted fleet-status payload"
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args([])
+    assert exc_info.value.code == 2
+
+
+def test_fleet_status_current_timestamp_requests_utc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import timezone
+
+    from mcp_broker import fleet_status
+
+    received_timezones: list[object] = []
+
+    class FakeTimestamp:
+        def isoformat(self) -> str:
+            return "2026-07-01T12:00:00+00:00"
+
+    class RecordingDatetime:
+        @staticmethod
+        def now(selected_timezone: object) -> FakeTimestamp:
+            received_timezones.append(selected_timezone)
+            return FakeTimestamp()
+
+    monkeypatch.setattr(fleet_status, "datetime", RecordingDatetime)
+
+    assert fleet_status._current_timestamp() == "2026-07-01T12:00:00+00:00"
+    assert received_timezones == [timezone.utc]
+
+
+def test_fleet_status_direct_cli_uses_current_timestamp_when_not_supplied(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mcp_broker import fleet_status
+
+    status_file = tmp_path / "broker-status.json"
+    status_file.write_text(json.dumps(_status_snapshot()), encoding="utf-8")
+    monkeypatch.setattr(
+        fleet_status,
+        "_current_timestamp",
+        lambda: "2026-07-01T12:00:00+00:00",
+    )
+
+    assert (
+        fleet_status.main(
+            [
+                "--status-file",
+                str(status_file),
+                "--target-url",
+                "https://control-plane.example/fleet",
+                "--auth-ref",
+                "env:FLEET_TOKEN",
+                "--retention-days",
+                "7",
+                "--collector-id",
+                "collector-a",
+            ]
+        )
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["generated_at"] == (
+        "2026-07-01T12:00:00+00:00"
+    )
+
+
+def test_fleet_status_direct_cli_emits_stably_sorted_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from mcp_broker.fleet_status import main
+
+    status_file = tmp_path / "broker-status.json"
+    status_file.write_text(
+        json.dumps({"status": "running", "identity": {"broker_id": "broker-a"}}),
+        encoding="utf-8",
+    )
+
+    assert main(["--status-file", str(status_file)]) == 0
+
+    assert capsys.readouterr().out == (
+        '{"health": {"status": "running"}, "identity": {"broker_id": "broker-a"}, '
+        '"request_counters": {}, "upstreams": {}}\n'
+    )
+
+
+def test_fleet_status_sensitive_string_detection_flags_urls() -> None:
+    from mcp_broker.fleet_status import _is_sensitive_status_string
+
+    assert _is_sensitive_status_string("https://api.example.com/status") is True
+    assert _is_sensitive_status_string("healthy") is False

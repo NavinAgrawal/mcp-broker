@@ -76,7 +76,7 @@ make public-release-surface-smoke
 That release gate adds NPM and Docker checks and must pass before any directory
 submission claims those surfaces are live.
 
-CI also runs public live verification during the publish transaction:
+The local release transaction runs public live verification:
 
 ```bash
 make public-release-live-verify
@@ -86,17 +86,17 @@ That verifier checks public registry APIs and anonymous image pull manifests for
 the intended version. It fails when a registry accepts a publisher write but a
 normal public user cannot see the version.
 
-Publishing is orchestrated by `.github/workflows/publish-everywhere.yml`. The
-workflow calls:
+Local publication is the default. GitHub Actions stays disabled. Run the
+one-shot transaction from a release worktree:
 
 ```bash
 make release RELEASE_APPLY=1
 ```
 
-`make release` is the CI release transaction. It runs `make release-check` once,
-then calls `make publish-everywhere` with preflight reuse enabled. The lower
-level `publish-everywhere` target remains available for retry recovery, but the
-workflow does not call it directly.
+`make release` runs `make release-check` once, then calls
+`make publish-everywhere` with preflight reuse enabled. The lower-level target
+remains available for retry recovery. The dormant workflow file is not a
+release path while repository Actions are disabled.
 
 `make release-check RELEASE_VERSION=<semver>` is the local pre-push contract.
 It refuses to run without an explicit version unless GitHub Actions supplied a
@@ -104,10 +104,10 @@ It refuses to run without an explicit version unless GitHub Actions supplied a
 preflight, and checks directory, MCPB, and Smithery metadata before a release
 tag or GitHub release is created.
 
-The release transaction validates required credentials, GHCR package visibility,
-and Docker Hub repository visibility before the first registry write, publishes
+The release transaction validates local tokens, GHCR package visibility, and
+Docker Hub repository visibility before the first registry write, publishes
 PyPI, then fans out NPM, Docker Hub, GHCR, MCP Registry metadata, and the
-Homebrew tap formula in one CI run. The fan-out writes a JSON ledger to
+Homebrew tap formula. The fan-out writes a JSON ledger to
 `var/quality/release/publish-everywhere-ledger.json` with each registry child
 command, exit code, and status. A registry child command failure is not treated
 as the final release truth by itself, because some registries can accept a write
@@ -117,7 +117,7 @@ the fan-out and decides whether the release can continue.
 The GitHub Release is created only after registry verification passes, then the
 release object is verified through the GitHub API. If the fan-out partly
 published a version and stopped before GitHub release creation, rerun the same
-`publish-everywhere` workflow for the same version. Already-published registry
+local `publish-everywhere` command for the same version. Already-published registry
 surfaces are skipped only after `scripts/release_idempotency.py` verifies the
 registry metadata for that surface. PyPI compares every local dist artifact
 SHA-256 digest with the PyPI release JSON, NPM compares the local dry-run pack
@@ -129,11 +129,12 @@ proves the public state, and the GitHub release step recovers the missing
 publish. There are no per-registry publish workflows.
 
 The Makefile validates required publication environment before the first
-registry write. For the current surface set, `HOMEBREW_TAP_TOKEN`,
-`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `NODE_AUTH_TOKEN`, and `GH_TOKEN` or
-`GITHUB_TOKEN` must exist in GitHub Actions before PyPI publication starts.
-The GitHub token must also be able to read GitHub Packages metadata so the
-workflow can fail closed if the GHCR package is not public. `DOCKERHUB_USERNAME`
+registry write. For local publication, `DOCKERHUB_USERNAME`,
+`DOCKERHUB_TOKEN`, and `UV_PUBLISH_TOKEN` must exist before PyPI publication
+starts. NPM uses the authenticated local npm configuration. Homebrew and MCP
+Registry use the authenticated local `gh` session, which must also be able to
+read GitHub Packages metadata so the command can fail closed if the GHCR package
+is not public. `DOCKERHUB_USERNAME`
 and `DOCKERHUB_TOKEN` are also used by `make docker-hub-public-ensure` so the
 Docker Hub repository is public before the image push and before PyPI can be
 written.
@@ -156,14 +157,13 @@ That target includes `make release-gate`, so the dependency refresh, coverage,
 package checks, release smoke, and mutation run in the release preflight.
 Mutation evidence is written under `var/quality/mutation_stats.json`.
 
-Before publishing from GitHub Actions, run the Linux parity gate when Docker is
-available:
+The Linux parity gate remains available for public portability checks:
 
 ```bash
 make linux-release-gate
 ```
 
-That target runs the PyPI workflow release gate inside a Linux container with
+That target runs the release gate inside a Linux container with
 `GITHUB_ACTIONS`, `RUNNER_TEMP`, `HOME`, and `XDG_CONFIG_HOME` set to runner-like
 values.
 
@@ -185,7 +185,7 @@ $HOME/mcp/mcp-broker/
 
 The public tap points to the PyPI source artifact for `${PACKAGE_VERSION}`.
 Future releases update the formula through `make publish-everywhere` with the
-`HOMEBREW_TAP_TOKEN` GitHub Actions secret.
+local `gh` token. `HOMEBREW_TAP_TOKEN` remains an explicit override.
 
 ## NPM
 
@@ -201,10 +201,8 @@ ${NPM_PACKAGE_NAME}
 Do not publish the unscoped `mcp-broker` package name on NPM. That name already
 belongs to a different project.
 
-NPM trusted publishing is the preferred auth path. The current workflow uses the
-scoped `NPM_TOKEN` secret through `NODE_AUTH_TOKEN` until the package scope has
-an OIDC trusted publisher configured. The publish workflow should run only on
-GitHub release `published`, manual dispatch, or repository dispatch events.
+Local NPM publication uses the authenticated npm configuration verified by
+`npm whoami` and does not request Actions provenance.
 
 Details live in `docs/npm-distribution.md`.
 
@@ -222,17 +220,17 @@ registry/server.template.json
 The official metadata points to the PyPI package path. The template stays
 generic for downstream forks.
 
-Before publishing from GitHub Actions:
+Before publishing locally:
 
 - Publish the `mcp-broker` package to PyPI.
 - Confirm the PyPI package README contains `mcp-name: ${MCP_REGISTRY_NAME}`.
 - Confirm `registry/server.json` and the PyPI package version match.
-- Confirm the public GitHub repo has OIDC access to the MCP Registry namespace.
-- Run `.github/workflows/publish-everywhere.yml`. Do not publish the MCP
-  Registry through a workflow-run chain after PyPI; the one-shot workflow owns
-  the release.
+- Confirm `gh auth status` passes for the public GitHub organization. The
+  publisher authenticates through the interactive `mcp-publisher login github`
+  flow. No GitHub token is placed in process arguments.
+- Run the local one-shot release transaction after PyPI metadata is public.
 
-GitHub OIDC is the preferred auth path. The workflow runs:
+CI mode can use GitHub OIDC when repository Actions are enabled:
 
 ```bash
 mcp-publisher login github-oidc

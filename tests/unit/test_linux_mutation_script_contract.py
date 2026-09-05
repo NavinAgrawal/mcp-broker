@@ -54,8 +54,87 @@ def test_linux_mutation_script_exports_container_mutants_for_debugging() -> None
     assert 'cp -a /workspace/mutants/. /mutants-output/' in script
 
 
+def test_linux_mutation_script_can_restrict_paths_to_mutate_inside_container() -> None:
+    script = (ROOT / "scripts" / "linux-mutation.sh").read_text(encoding="utf-8")
+
+    assert 'MUTATION_PATHS_TO_MUTATE="${MCP_BROKER_MUTATION_PATHS_TO_MUTATE:-}"' in script
+    assert '-e MCP_BROKER_MUTATION_PATHS_TO_MUTATE="$MUTATION_PATHS_TO_MUTATE"' in script
+    assert 'rewrite_mutation_scope()' in script
+    assert 'paths = os.environ.get("MCP_BROKER_MUTATION_PATHS_TO_MUTATE", "").split()' in script
+    assert "parser.set(\"mutmut\", \"paths_to_mutate\", value)" in script
+    assert "also_copy.append(\"src\")" in script
+    assert "parser.set(\"mutmut\", \"also_copy\", also_copy_value)" in script
+    assert "rewrite_mutation_scope" in script
+
+
+def test_linux_mutation_script_can_restrict_affected_tests_inside_container() -> None:
+    script = (ROOT / "scripts" / "linux-mutation.sh").read_text(encoding="utf-8")
+
+    assert 'MUTATION_TESTS_TO_RUN="${MCP_BROKER_MUTATION_TESTS_TO_RUN:-}"' in script
+    assert '-e MCP_BROKER_MUTATION_TESTS_TO_RUN="$MUTATION_TESTS_TO_RUN"' in script
+    assert 'tests = os.environ.get("MCP_BROKER_MUTATION_TESTS_TO_RUN", "").split()' in script
+    assert "parser.set(\"mutmut\", \"tests_dir\", tests_value)" in script
+
+
+def test_linux_mutation_debug_output_is_opt_in() -> None:
+    script = (ROOT / "scripts" / "linux-mutation.sh").read_text(encoding="utf-8")
+    config = (ROOT / "mk" / "config.mk").read_text(encoding="utf-8")
+    release = (ROOT / "mk" / "release.mk").read_text(encoding="utf-8")
+
+    assert "MUTATION_DEBUG   ?= false" in config
+    assert 'MCP_BROKER_MUTATION_DEBUG="$(MUTATION_DEBUG)"' in release
+    assert 'MUTATION_DEBUG="${MCP_BROKER_MUTATION_DEBUG:?MCP_BROKER_MUTATION_DEBUG is required}"' in script
+    assert '-e MCP_BROKER_MUTATION_DEBUG="$MUTATION_DEBUG"' in script
+    assert 'debug = os.environ["MCP_BROKER_MUTATION_DEBUG"]' in script
+    assert 'parser.set("mutmut", "debug", debug)' in script
+
+
 def test_mutmut_copies_public_listing_metadata_into_mutant_workspaces() -> None:
     setup_cfg = (ROOT / "setup.cfg").read_text(encoding="utf-8")
 
     assert "    brand" in setup_cfg
     assert "glama.json" in setup_cfg
+
+
+def test_mutation_carveout_registry_records_config_keys_tool_incompatibility() -> None:
+    registry = (ROOT / "docs" / "mutation-carveouts.md").read_text(encoding="utf-8")
+
+    assert "src/mcp_broker/config_keys.py" in registry
+    assert "whole file" in registry
+    assert "tool-incompatible" in registry
+    assert "mutmut 3.5" in registry
+    assert "a7c2123bb44ca89ff1ec84a75eabcb4fea05eab72f2c9816f1dc74197aedc218" in registry
+    assert "Approved 2026-09-05" in registry
+
+
+def test_mutation_carveout_registry_records_daemon_class_method_limit() -> None:
+    registry = (ROOT / "docs" / "mutation-carveouts.md").read_text(encoding="utf-8")
+
+    assert "`BrokerDaemon._handle_connection`" in registry
+    assert "`BrokerDaemon._read_request`" in registry
+    assert "`BrokerDaemon._send_response`" in registry
+    assert "`BrokerDaemon._reap_idle_upstreams`" in registry
+    assert "65f64e19e44e818e356f77d12155af1615d89dc934d2027ab76593d1a7de40f6" in registry
+    assert "source or mutmut version drift invalidates this approval" in registry
+
+
+def test_mutation_carveout_registry_records_typing_only_protocol_limit() -> None:
+    registry = (ROOT / "docs" / "mutation-carveouts.md").read_text(encoding="utf-8")
+
+    assert "src/mcp_broker/upstream_protocols.py" in registry
+    assert "whole file, lines 1-48" in registry
+    assert "typing-only Protocol declarations" in registry
+    assert "64c4b31d980c40e7dde4603bdc4213851f32ef4e32706d2555e3919b5a9129ec" in registry
+
+
+def test_incremental_and_release_mutation_use_affected_file_selectors() -> None:
+    release = (ROOT / "mk" / "release.mk").read_text(encoding="utf-8")
+    incremental_block = release.split("_mutation-linux-impl:", maxsplit=1)[1].split(
+        "release-gate:", maxsplit=1
+    )[0]
+    release_block = release.split("_release-gate-mutation-run:", maxsplit=1)[1]
+
+    assert "--diff-base \"$(MUTATION_DIFF_BASE)\" --format make" in incremental_block
+    assert "--all" not in incremental_block
+    assert "--all" not in release_block
+    assert '--diff-base "$(MUTATION_DIFF_BASE)" --format make' in release_block

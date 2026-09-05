@@ -10,6 +10,7 @@ broker_search_tools
 broker_describe_tool
 broker_call_tool
 broker_status
+broker_close_session
 ```
 
 The broker keeps the upstream MCP servers available, but it exposes them through
@@ -60,7 +61,7 @@ mcp-broker render codex --dry-run
 mcp-broker status
 ```
 
-Then show one client configured with a single `mcp-broker` entry and the four
+Then show one client configured with a single `mcp-broker` entry and the five
 broker tools listed above.
 
 ## Links

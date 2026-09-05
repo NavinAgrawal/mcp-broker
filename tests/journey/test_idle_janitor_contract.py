@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -10,7 +11,7 @@ from mcp_broker.config import (
     RuntimeConfig,
     UpstreamConfig,
 )
-from mcp_broker.daemon import BrokerDaemon
+from mcp_broker.daemon import BrokerDaemon, StdioUpstreamClientProtocol
 from mcp_broker.upstream_stdio import StdioUpstreamProcess
 
 
@@ -103,6 +104,52 @@ def test_never_reaps_shared_upstream(tmp_path: Path) -> None:
     daemon._reap_idle_upstreams(now=99999.0)
 
     assert "shared" in daemon._stdio_upstreams
+
+
+def test_reaps_exited_shared_upstream(tmp_path: Path) -> None:
+    daemon = _daemon(tmp_path)
+
+    class ExitedSharedClient:
+        upstream = daemon.broker_config.upstreams["shared"]  # type: ignore[union-attr]
+        status = "exited"
+
+        def __init__(self) -> None:
+            self.stop_calls = 0
+
+        def stop(self) -> tuple[int, ...]:
+            self.stop_calls += 1
+            return ()
+
+    client = ExitedSharedClient()
+    daemon._stdio_upstreams["shared"] = cast(StdioUpstreamClientProtocol, client)
+
+    reaped = daemon._reap_idle_upstreams(now=0.0)
+
+    assert "shared" not in daemon._stdio_upstreams
+    assert client.stop_calls == 1
+    assert [key for key, _client, _remaining in reaped] == ["shared"]
+
+
+def test_reaps_exited_shared_process_and_closes_its_pipes(tmp_path: Path) -> None:
+    daemon = _daemon(tmp_path)
+    client = _client(daemon, "shared", tmp_path)
+    client.ensure_running()
+    process = client._process
+    assert process is not None
+    assert process.stdin is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
+
+    process.kill()
+    process.wait(timeout=1)
+    daemon._stdio_upstreams["shared"] = client
+
+    daemon._reap_idle_upstreams(now=0.0)
+
+    assert "shared" not in daemon._stdio_upstreams
+    assert process.stdin.closed
+    assert process.stdout.closed
+    assert process.stderr.closed
 
 
 def test_idle_timeout_zero_disables_reaping(tmp_path: Path) -> None:

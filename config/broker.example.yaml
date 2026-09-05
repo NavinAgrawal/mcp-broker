@@ -29,6 +29,8 @@ broker:
     bundle_version: unbundled
   tool_namespace_separator: "."
   idle_timeout_seconds: 900
+  socket_read_timeout_seconds: 30
+  socket_max_request_bytes: 16777216
   cpu_watchdog_percent: 80
   cpu_watchdog_seconds: 10
   # Remote broker access is not exposed by the local daemon today. Keep this

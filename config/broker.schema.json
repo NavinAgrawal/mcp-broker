@@ -71,6 +71,12 @@
         "idle_timeout_seconds": {
           "$ref": "#/$defs/positiveInteger"
         },
+        "socket_read_timeout_seconds": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "socket_max_request_bytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
         "cpu_watchdog_percent": {
           "type": "integer",
           "minimum": 1,
@@ -363,7 +369,9 @@
           "$ref": "#/$defs/positiveInteger"
         },
         "call_timeout_seconds": {
-          "$ref": "#/$defs/positiveInteger"
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
         },
         "http_retry_attempts": {
           "$ref": "#/$defs/nonNegativeInteger"

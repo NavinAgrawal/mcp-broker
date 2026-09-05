@@ -143,10 +143,11 @@ def test_make_tools_count_reuses_running_broker_without_stopping_it(tmp_path: Pa
         report = report_from_stdout(result.stdout, label="tools count")
 
         assert report["profile"] == "llm-profile"
-        assert report["total_tools"] == 4
-        assert report["upstream_counts"] == {"broker": 4}
+        assert report["total_tools"] == 5
+        assert report["upstream_counts"] == {"broker": 5}
         assert report["tools"] == [
             "broker.call_tool",
+            "broker.close_session",
             "broker.describe_tool",
             "broker.search_tools",
             "broker.status",

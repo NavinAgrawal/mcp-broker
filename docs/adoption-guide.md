@@ -17,6 +17,7 @@ broker_search_tools
 broker_describe_tool
 broker_call_tool
 broker_status
+broker_close_session
 ```
 
 Raw upstream tools stay behind the broker until a task needs them.

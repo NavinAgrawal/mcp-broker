@@ -23,6 +23,7 @@ LOCAL_SPOOL_ENABLED = False
 _REDACTED = "[redacted]"
 _EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 _SAFE_COLLECTOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_SAFE_AUTH_REF_PATTERN = re.compile(r"^(?:env|keychain):[A-Za-z0-9_.-]+$")
 _SENSITIVE_WORDS = ("secret", "token", "credential", "password", "key")
 _SENSITIVE_QUERY_KEYS = frozenset(_SENSITIVE_WORDS)
 _STATUS_ROOT_FIELDS = frozenset(("identity", "health", "request_counters", "upstreams"))
@@ -66,6 +67,8 @@ def prepare_collection_envelope(
 ) -> dict[str, Any]:
     """Return a central-safe collection envelope without uploading it."""
 
+    if not isinstance(status_payload, Mapping):
+        raise FleetCollectionError("unsafe fleet status payload: root must be an object")
     _validate_target_url(target_url)
     _validate_auth_ref(auth_ref)
     _validate_retention_days(retention_days)
@@ -104,8 +107,11 @@ def prepare_collection_envelope(
     }
 
 
-def _validate_target_url(target_url: str) -> None:
-    if not target_url.strip() or looks_like_filesystem_path(target_url):
+def _validate_target_url(target_url: object) -> None:
+    if (
+        not isinstance(target_url, str)
+        or not target_url.strip()
+    ):
         raise FleetCollectionError("collection target must be an https URL")
     parsed = urlparse(target_url)
     if parsed.scheme != "https" or not parsed.netloc:
@@ -121,31 +127,36 @@ def _validate_target_url(target_url: str) -> None:
             raise FleetCollectionError("collection target URL must not contain secret query data")
 
 
-def _validate_auth_ref(auth_ref: str) -> None:
-    if not auth_ref.strip() or any(char.isspace() for char in auth_ref):
-        raise FleetCollectionError("collection auth_ref must be env:NAME or keychain:NAME")
-    if auth_ref.startswith(("env:", "keychain:")) and auth_ref.split(":", 1)[1]:
+def _validate_auth_ref(auth_ref: object) -> None:
+    if isinstance(auth_ref, str) and _SAFE_AUTH_REF_PATTERN.fullmatch(auth_ref):
         return
     raise FleetCollectionError("collection auth_ref must be env:NAME or keychain:NAME")
 
 
-def _validate_retention_days(retention_days: int) -> None:
-    if not RETENTION_MIN_DAYS <= retention_days <= RETENTION_MAX_DAYS:
+def _validate_retention_days(retention_days: object) -> None:
+    if (
+        not isinstance(retention_days, int)
+        or isinstance(retention_days, bool)
+        or not RETENTION_MIN_DAYS <= retention_days <= RETENTION_MAX_DAYS
+    ):
         raise FleetCollectionError("collection retention_days must be between 1 and 365")
 
 
-def _validate_collector_id(collector_id: str) -> None:
+def _validate_collector_id(collector_id: object) -> None:
     if (
-        not collector_id.strip()
+        not isinstance(collector_id, str)
+        or not collector_id.strip()
         or not _SAFE_COLLECTOR_ID_PATTERN.fullmatch(collector_id)
         or _is_unsafe_status_string(collector_id)
     ):
         raise FleetCollectionError("collection collector_id must be a safe identifier")
 
 
-def _parse_generated_at(generated_at: str) -> datetime:
+def _parse_generated_at(generated_at: object) -> datetime:
+    if not isinstance(generated_at, str):
+        raise FleetCollectionError("collection generated_at must be ISO-8601")
     try:
-        return datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+        return datetime.fromisoformat(generated_at)
     except ValueError as exc:
         raise FleetCollectionError("collection generated_at must be ISO-8601") from exc
 
@@ -191,8 +202,7 @@ def _reject_unknown_fields(
     allowed_fields: frozenset[str],
     label: str,
 ) -> None:
-    unknown_fields = sorted(str(key) for key in value if str(key) not in allowed_fields)
-    if unknown_fields:
+    if any(str(key) not in allowed_fields for key in value):
         raise FleetCollectionError(
             f"unsafe fleet status payload: {label} contains disallowed fields"
         )

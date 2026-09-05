@@ -6,6 +6,7 @@ from scripts.ensure_docker_hub_public import (
     DockerHubConfig,
     DockerHubPublicError,
     DockerHubRequest,
+    dockerhub_token_from_env,
     ensure_docker_hub_public,
 )
 
@@ -45,6 +46,22 @@ def _config() -> DockerHubConfig:
         namespace_repositories_url="https://hub.example/v2/namespaces",
         legacy_repositories_url="https://hub.example/v2/repositories",
     )
+
+
+def test_dockerhub_token_comes_from_environment() -> None:
+    assert dockerhub_token_from_env({"DOCKERHUB_TOKEN": "docker-token"}) == "docker-token"
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_dockerhub_token_rejects_missing_or_blank_environment_value(
+    value: str | None,
+) -> None:
+    environment = {} if value is None else {"DOCKERHUB_TOKEN": value}
+
+    with pytest.raises(DockerHubPublicError) as excinfo:
+        dockerhub_token_from_env(environment)
+
+    assert str(excinfo.value) == "DOCKERHUB_TOKEN is required"
 
 
 def test_ensure_docker_hub_public_creates_missing_public_repository() -> None:

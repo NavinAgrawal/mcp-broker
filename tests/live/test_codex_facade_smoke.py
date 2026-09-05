@@ -94,6 +94,7 @@ def test_make_codex_facade_smoke_uses_client_shim_and_calls_upstream(
     assert report["profile"] == "codex"
     assert report["advertised_tools"] == [
         "broker.call_tool",
+        "broker.close_session",
         "broker.describe_tool",
         "broker.search_tools",
         "broker.status",
@@ -184,6 +185,7 @@ def test_make_claude_facade_smoke_uses_claude_profile_without_wiring(
     assert report["profile"] == "claude"
     assert report["advertised_tools"] == [
         "broker.call_tool",
+        "broker.close_session",
         "broker.describe_tool",
         "broker.search_tools",
         "broker.status",

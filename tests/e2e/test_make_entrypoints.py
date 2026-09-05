@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -160,6 +161,90 @@ def test_makefile_is_split_by_command_family() -> None:
         assert path.exists()
 
 
+@pytest.mark.parametrize(
+    ("tier", "expected_command"),
+    [
+        ("commit", "make test PYTEST_ARGS="),
+        ("push", "make test PYTEST_ARGS="),
+        ("ci", "make quality-gate"),
+    ],
+)
+def test_cits_repo_override_keeps_test_execution_make_backed(
+    tier: str,
+    expected_command: str,
+) -> None:
+    override = ROOT / ".cits" / "test-impact.sh"
+
+    assert override.is_file()
+    assert override.stat().st_mode & 0o111
+
+    env = os.environ.copy()
+    env["CITS_CHANGED_FILES"] = ".test-impact.json"
+    result = subprocess.run(
+        [
+            str(override),
+            "--tier",
+            tier,
+            "--repo",
+            str(ROOT),
+            "--base",
+            "origin/main",
+            "--dry-run",
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+
+    assert expected_command in result.stdout
+    assert "python3 -m pytest" not in result.stdout
+    if tier != "ci":
+        assert "affected pytest files selected" in result.stdout
+        assert "Make-backed full suite" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("changed", "expected", "absent"),
+    [
+        ("tests/unit/test_schema_contract.py", "make test PYTEST_ARGS=", "make test-live-targeted"),
+        ("tests/live/test_broker_daemon_socket.py", "make test-live-targeted PYTEST_ARGS=", "make test PYTEST_ARGS="),
+    ],
+)
+def test_cits_repo_override_handles_single_tier_selection(
+    changed: str,
+    expected: str,
+    absent: str,
+) -> None:
+    env = os.environ.copy()
+    env["CITS_CHANGED_FILES"] = changed
+
+    result = subprocess.run(
+        [
+            str(ROOT / ".cits" / "test-impact.sh"),
+            "--tier",
+            "push",
+            "--repo",
+            str(ROOT),
+            "--base",
+            "origin/main",
+            "--dry-run",
+        ],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert expected in result.stdout
+    assert absent not in result.stdout
+
+
 def test_make_profile_snippet_keeps_home_placeholder_public_safe() -> None:
     result = subprocess.run(
         make_command(
@@ -210,7 +295,7 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert "$(MUTMUT) run" in mutation_section
     assert "python -m mutmut" not in mutation_section
     assert 'MCP_BROKER_REPO_ROOT="$(ROOT)"' not in mutation_section
-    assert 'PYTHONPATH="$(PYTHONPATH)"' not in mutation_section
+    assert 'PYTHONPATH="$(PYTHONPATH)" $(MUTMUT)' not in mutation_section
     assert "scripts/check_mutation_stats.py" in mutation_section
     assert '$(if $(MUTATION_ARGS),--include-mutants $(MUTATION_ARGS),)' in mutation_section
     assert "CPU_COUNT ?=" in makefile
@@ -237,7 +322,23 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert "MUTATION_MUTANTS_DIR ?= $(QUALITY_DIR)/mutants-linux" in makefile
     assert 'MCP_BROKER_MUTATION_LOG="$(MUTATION_LOG)"' in makefile
     assert 'MCP_BROKER_MUTATION_MUTANTS_DIR="$(MUTATION_MUTANTS_DIR)"' in makefile
+    assert 'MCP_BROKER_MUTATION_PATHS_TO_MUTATE="$$paths"' in makefile
     assert "RELEASE_MUTATION_TARGET ?= $(if $(filter Darwin,$(UNAME_S)),mutation-linux,mutation)" in makefile
+    assert "MUTATION_DIFF_BASE ?= origin/main" in makefile
+    assert "MUTATION_CHANGED_PATHS ?=" in makefile
+    assert "MUTATE_FILE ?=" in makefile
+    assert "MUTATION_TESTS_TO_RUN ?=" in makefile
+    assert "scripts/changed_mutation_paths.py" in makefile
+    assert "_release-gate-mutation-run" in makefile
+    assert "mutation-linux: resolve changed paths" in makefile
+    assert "paths=\"$$(PYTHONPATH=\"$(PYTHONPATH)\"" in makefile
+    assert "--diff-base \"$(MUTATION_DIFF_BASE)\" --format make)" in makefile
+    assert 'MUTATION_PATHS_TO_MUTATE="$$paths"' in makefile
+    assert 'MCP_BROKER_MUTATION_TESTS_TO_RUN="$(MUTATION_TESTS_TO_RUN)"' in makefile
+    assert "mutate-file: ## Run one source-and-affected-tests mutation slice" in makefile
+    assert 'test -n "$(MUTATE_FILE)"' in makefile
+    assert 'test -n "$(MUTATION_TESTS_TO_RUN)"' in makefile
+    assert 'MUTATION_PATHS_TO_MUTATE="$(MUTATE_FILE)"' in makefile
     assert 'MUTATION_STATS_JSON ?= $(QUALITY_DIR)/mutation_stats.json' in makefile
     assert (
         "MUTATION_FAIL_STATUSES ?= survived no_tests skipped suspicious timeout "
@@ -249,7 +350,7 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert '$(call timed_make,"release-gate: deps",deps)' in makefile
     assert "doctor: deps runtime-layout broker-reap ## Verify runtime directories and report broker-owned leftovers" in makefile
     assert "broker-reap: deps runtime-layout ## Reap stale broker-owned pidfiles, sockets, and orphaned process groups" in makefile
-    assert '$(call timed_make,"release-gate: parallel children",-j $(RELEASE_GATE_JOBS) _release-gate-quality _release-gate-package _release-gate-smoke _release-gate-mutation)' in makefile
+    assert '$(call timed_make,"release-gate: parallel children",$(call parallel_make_args,$(RELEASE_GATE_JOBS)) _release-gate-quality _release-gate-package _release-gate-smoke _release-gate-mutation)' in makefile
     assert '$(call timed_make,"release-gate: sequential quality-gate",_release-gate-quality)' in makefile
     assert '$(call timed_make,"release-gate: sequential package-check",_release-gate-package)' in makefile
     assert '$(call timed_make,"release-gate: sequential release-smoke",_release-gate-smoke)' in makefile
@@ -275,6 +376,7 @@ def test_mutation_target_uses_venv_console_script() -> None:
         "registry",
         "scripts",
         ".github",
+        ".codex-plugin",
         ".well-known",
         ".dockerignore",
         "CHANGELOG.md",
@@ -299,6 +401,7 @@ def test_mutation_target_uses_venv_console_script() -> None:
 def test_make_test_gates_use_parallel_workers_and_fanout() -> None:
     makefile = read_combined_makefiles(ROOT)
 
+    assert "export MCP_BROKER_LIVE_CONFIG_PATH := $(LIVE_CONFIG_PATH)" in makefile
     assert "CPU_COUNT ?=" in makefile
     assert "LOCAL_CPU_BUDGET ?= $(if $(filter Darwin,$(UNAME_S)),2,4)" in makefile
     assert "PYTEST_WORKERS ?= $(LOCAL_CPU_BUDGET)" in makefile
@@ -310,6 +413,10 @@ def test_make_test_gates_use_parallel_workers_and_fanout() -> None:
     assert (
         "PYTEST_MARKER_EXPRESSION ?= "
         "$(if $(wildcard $(ROOT)/local.mk),,$(PUBLIC_RELEASE_PYTEST_MARKER_EXPRESSION))"
+    ) in makefile
+    assert (
+        "RELEASE_GATE_PYTEST_MARKER_EXPRESSION ?= "
+        "$(if $(strip $(PYTEST_MARKER_EXPRESSION)),$(PYTEST_MARKER_EXPRESSION),$(PUBLIC_RELEASE_PYTEST_MARKER_EXPRESSION))"
     ) in makefile
     assert "QUALITY_GATE_PYTEST_MARKER_EXPRESSION ?= $(RELEASE_GATE_PYTEST_MARKER_EXPRESSION)" in makefile
     assert 'PYTEST_MARKER_ARGS ?= $(if $(strip $(PYTEST_MARKER_EXPRESSION)),-m "$(PYTEST_MARKER_EXPRESSION)",)' in makefile
@@ -334,6 +441,10 @@ def test_make_test_gates_use_parallel_workers_and_fanout() -> None:
     assert "PYTEST_TARGETED_COMMON ?=" in makefile
     assert "TEST_JOBS ?= 4" in makefile
     assert "PRECOMMIT_JOBS ?= 2" in makefile
+    assert (
+        "parallel_make_args = $(if $(findstring jobserver,$(MAKEFLAGS)),,-j $(1))"
+        in makefile
+    )
     assert "RELEASE_GATE_JOBS ?= $(if $(filter Darwin,$(UNAME_S)),1,2)" in makefile
     assert "RELEASE_GATE_PARALLEL ?= $(if $(filter Darwin,$(UNAME_S)),0,1)" in makefile
     mutation_children_default = re.search(r"^MUTATION_MAX_CHILDREN \?= (.+)$", makefile, re.M)
@@ -367,14 +478,32 @@ def test_make_test_gates_use_parallel_workers_and_fanout() -> None:
 
     assert 'ifneq ($(strip $(PYTEST_ARGS)),)' in test_section
     assert '$(call timed_make,"test: targeted tests",_test-targeted)' in test_section
-    assert '$(call timed_make,"test: all tiers",-j $(TEST_JOBS) _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout)' in test_section
+    assert '$(call timed_make,"test: all tiers",$(call parallel_make_args,$(TEST_JOBS)) _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout)' in test_section
     assert 'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/unit"' in makefile
     assert 'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/journey"' in makefile
     assert 'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/live"' in makefile
     assert 'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/e2e"' in makefile
-    assert '$(call timed_make,"precommit: unit and journey",-j $(PRECOMMIT_JOBS) _precommit-unit-fanout _precommit-journey-fanout)' in precommit_section
+    for tier in ("unit", "journey", "live", "e2e"):
+        assert (
+            f'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/{tier}" '
+            'LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)"'
+        ) in makefile
+    assert '$(call timed_make,"precommit: unit and journey",$(call parallel_make_args,$(PRECOMMIT_JOBS)) _precommit-unit-fanout _precommit-journey-fanout)' in precommit_section
     assert '$(call timed_make,"precommit: targeted tests",_test-targeted)' in precommit_section
     assert 'PYTEST_WORKERS="$(PYTEST_PRECOMMIT_WORKERS)"' in precommit_section
+    for tier in ("unit", "journey"):
+        assert (
+            f'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/precommit-{tier}" '
+            'LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)"'
+        ) in precommit_section
+
+    for job_variable in [
+        "TEST_JOBS",
+        "PRECOMMIT_JOBS",
+        "RELEASE_GATE_JOBS",
+        "PUBLISH_CHECK_JOBS",
+    ]:
+        assert f"-j $({job_variable})" not in makefile
 
 
 def test_make_parallel_gates_report_child_and_total_elapsed_time() -> None:
@@ -487,6 +616,8 @@ def test_public_export_verify_targets_fail_fast() -> None:
     assert (
         '$(MAKE) --no-print-directory -C "$(PUBLIC_REPO)" "$$target" '
         'PYTEST_MARKER_EXPRESSION="$(PUBLIC_EXPORT_PYTEST_MARKER_EXPRESSION)" '
+        'CONFIG_PRIVATE_PATH="$(PUBLIC_EXPORT_CONFIG_PATH)" '
+        'CONFIG_PATH="$(PUBLIC_EXPORT_CONFIG_PATH)" '
         "|| exit $$?"
     ) in public_export_section
 
@@ -511,11 +642,19 @@ def test_live_tests_use_timeout_budget_that_can_cover_configured_upstreams() -> 
     assert live_timeout is not None
     assert int(live_timeout.group("seconds")) >= 300
     assert coverage_timeout is not None
+    assert re.search(
+        r"^LIVE_CONFIG_PATH\s+\?= \$\(CONFIG_PRIVATE_PATH\)$",
+        makefile,
+        re.MULTILINE,
+    )
+    assert 'MCP_BROKER_LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)"' in live_section
     assert int(live_timeout.group("seconds")) > 60
     assert "PYTEST_LIVE_COMMON" in makefile
     assert "PYTEST_COV_COMMON" in makefile
     assert "$(PYTEST_LIVE_COMMON) $(PYTEST_LIVE_TARGETS)" in live_section
     assert "$(PYTEST_COMMON) $(PYTEST_LIVE_TARGETS)" not in live_section
+    assert "test-live-targeted:" in makefile
+    assert "$(PYTEST_LIVE_COMMON) $(PYTEST_ARGS)" in makefile
     assert "$(PYTEST_COV_COMMON)" in coverage_section
     assert "$(PYTEST_COMMON)" not in coverage_section
     assert "$(PYTEST_MARKER_ARGS)" not in coverage_section

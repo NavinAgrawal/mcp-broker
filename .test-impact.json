@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "map": [
+    {
+      "changed": ".cits/**",
+      "runTests": ["tests/unit/test_affected_test_selection_contract.py", "tests/e2e/test_make_entrypoints.py"]
+    },
+    {
+      "changed": ".test-impact.json",
+      "runTests": ["tests/unit/test_affected_test_selection_contract.py", "tests/e2e/test_make_entrypoints.py"]
+    },
+    {
+      "changed": "Makefile",
+      "runTests": ["tests/e2e/test_make_entrypoints.py", "tests/journey/test_distribution_contract_part*.py"]
+    },
+    {
+      "changed": "*.mk",
+      "runTests": ["tests/e2e/test_make_entrypoints.py", "tests/journey/test_distribution_contract_part*.py"]
+    },
+    {
+      "changed": "mk/**",
+      "runTests": ["tests/e2e/test_make_entrypoints.py", "tests/journey/test_distribution_contract_part*.py", "tests/journey/test_npm_distribution_contract.py", "tests/journey/test_project_scaffold_contract.py"]
+    },
+    {
+      "changed": "scripts/**",
+      "runTests": ["tests/e2e/test_make_entrypoints.py", "tests/unit/test_affected_test_selection_contract.py", "tests/unit/test_linux_mutation_script_contract.py", "tests/journey/test_distribution_contract_part*.py"]
+    },
+    {
+      "changed": "public-export/**",
+      "runTests": ["tests/journey/test_public_export_contract.py", "tests/e2e/test_make_entrypoints.py"]
+    },
+    {
+      "changed": "docs/**",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/journey/test_inventory_docs_contract.py", "tests/journey/test_public_adoption_contract.py"]
+    },
+    {
+      "changed": "*.md",
+      "runTests": ["tests/journey/test_inventory_docs_contract.py", "tests/journey/test_public_adoption_contract.py"]
+    },
+    {
+      "changed": "config/**",
+      "runTests": ["tests/unit/test_config_*contract*.py", "tests/unit/test_bundle_loader_contract.py", "tests/journey/test_public_export_contract.py"]
+    },
+    {
+      "changed": "src/mcp_broker/config_keys.py",
+      "runTests": ["tests/unit/test_config_*contract*.py", "tests/unit/test_config_inventory_contract.py"]
+    },
+    {
+      "changed": "src/mcp_broker/daemon_tool_calls.py",
+      "runTests": ["tests/unit/test_daemon_jsonrpc_contract_part*.py", "tests/unit/test_daemon_tool_call_mutation_contract.py"]
+    },
+    {
+      "changed": "registry/**",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/unit/test_release_metadata_contract.py"]
+    },
+    {
+      "changed": "npm/**",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py"]
+    },
+    {
+      "changed": "docker/**",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py"]
+    },
+    {
+      "changed": ".well-known/**",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/unit/test_release_metadata_contract.py"]
+    },
+    {
+      "changed": ".codex-plugin/**",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/unit/test_release_metadata_contract.py"]
+    },
+    {
+      "changed": "mcpb/**",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/unit/test_release_metadata_contract.py"]
+    },
+    {
+      "changed": "pyproject.toml",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/unit/test_release_metadata_contract.py"]
+    },
+    {
+      "changed": "setup.cfg",
+      "runTests": ["tests/unit/test_linux_mutation_script_contract.py", "tests/unit/test_mutation_scope_contract.py"]
+    },
+    {
+      "changed": "pytest.ini",
+      "runTests": ["tests/e2e/test_make_entrypoints.py"]
+    },
+    {
+      "changed": "requirements.txt",
+      "runTests": ["tests/journey/test_distribution_contract_part*.py"]
+    }
+  ]
+}

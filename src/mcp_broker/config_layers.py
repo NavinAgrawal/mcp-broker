@@ -109,7 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         add_ons = [
-            load_layer_document(add_on, name=add_on.stem)
+            load_layer_document(add_on)
             for add_on in args.addon
         ]
         result = compose_layered_config(
@@ -265,7 +265,7 @@ def _is_secret_ref(value: dict[str, Any]) -> bool:
 
 
 def _digest(effective_config: dict[str, Any]) -> str:
-    payload = json.dumps(effective_config, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    payload = json.dumps(effective_config, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(payload).hexdigest()
 
 

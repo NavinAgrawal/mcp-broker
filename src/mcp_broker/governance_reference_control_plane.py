@@ -243,8 +243,7 @@ def _primary_fleet_status(fleet_statuses: Sequence[Mapping[str, Any]]) -> Mappin
 
 
 def _load_json_mapping(path: Path) -> dict[str, Any]:
-    with path.expanduser().open("r", encoding="utf-8") as handle:
-        loaded = json.load(handle)
+    loaded = json.loads(path.expanduser().read_bytes())
     if not isinstance(loaded, dict):
         raise GovernanceReferenceControlPlaneError(f"expected JSON object: {path}")
     return loaded
@@ -293,7 +292,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _load_fleet_statuses(path: Path) -> list[dict[str, Any]]:
-    loaded = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    loaded = json.loads(path.expanduser().read_bytes())
     if isinstance(loaded, list):
         return [_mapping(item) for item in loaded]
     return [_mapping(loaded)]

@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "mcp-broker",
   "display_name": "mcp-broker",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Local MCP broker that exposes many configured upstream MCP servers through one client entry.",
   "long_description": "mcp-broker runs a local broker process and a compact stdio facade so MCP clients can connect to one local server instead of loading every upstream tool directly.",
   "author": {
@@ -52,6 +52,10 @@
     {
       "name": "broker_status",
       "description": "Report broker and upstream status for the active profile without starting hidden or denied upstreams. Use this for health checks, support tickets, and client validation because it returns the profile name, broker socket path, aggregate status, upstream runtime state, auth state, transport, process id, restarts, and mutating exposure."
+    },
+    {
+      "name": "broker_close_session",
+      "description": "Release the broker-owned per-session upstream processes for the current client session. Use this after shutting down a client session when its session-scoped MCP subprocesses must exit promptly. This never stops shared upstreams or another client's session."
     }
   ],
   "keywords": [

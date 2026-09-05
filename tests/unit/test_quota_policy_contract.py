@@ -66,17 +66,18 @@ def test_quota_decision_allows_when_every_scope_is_under_limit() -> None:
 
 
 @pytest.mark.parametrize(
-    ("switch_path", "expected_reason"),
+    ("switch_path", "expected_scope", "expected_reason"),
     [
-        (("global",), "global_kill_switch"),
-        (("teams", "team-a"), "team_kill_switch"),
-        (("users", "user-a"), "user_kill_switch"),
-        (("upstreams", "example-upstream"), "upstream_kill_switch"),
-        (("tools", "example.search"), "tool_kill_switch"),
+        (("global",), "global", "global_kill_switch"),
+        (("teams", "team-a"), "team", "team_kill_switch"),
+        (("users", "user-a"), "user", "user_kill_switch"),
+        (("upstreams", "example-upstream"), "upstream", "upstream_kill_switch"),
+        (("tools", "example.search"), "tool", "tool_kill_switch"),
     ],
 )
 def test_quota_decision_denies_when_any_kill_switch_matches(
     switch_path: tuple[str, ...],
+    expected_scope: str,
     expected_reason: str,
 ) -> None:
     snapshot = _quota_snapshot()
@@ -91,6 +92,7 @@ def test_quota_decision_denies_when_any_kill_switch_matches(
 
     assert decision["allowed"] is False
     assert decision["reason"] == expected_reason
+    assert decision["blocked_scope"] == expected_scope
     assert decision["audit_event"]["result"] == "denied"
     assert decision["audit_event"]["denial_reason"] == expected_reason
 
@@ -144,6 +146,174 @@ def test_quota_decision_fails_closed_when_scope_limit_is_missing() -> None:
     assert decision["audit_event"]["denial_reason"] == "tool_quota_missing"
 
 
+def test_quota_decision_fails_closed_when_kill_switches_are_missing() -> None:
+    snapshot = _quota_snapshot()
+    snapshot.pop("kill_switches")
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "global_kill_switch_missing"
+    assert decision["blocked_scope"] == "global"
+
+
+@pytest.mark.parametrize(
+    ("field", "expected_reason", "blocked_scope"),
+    [
+        ("teams", "team_kill_switch_missing", "team"),
+        ("users", "user_kill_switch_missing", "user"),
+        ("upstreams", "upstream_kill_switch_missing", "upstream"),
+        ("tools", "tool_kill_switch_missing", "tool"),
+    ],
+)
+def test_quota_decision_fails_closed_when_scoped_kill_switch_list_is_missing(
+    field: str,
+    expected_reason: str,
+    blocked_scope: str,
+) -> None:
+    snapshot = _quota_snapshot()
+    kill_switches = snapshot["kill_switches"]
+    assert isinstance(kill_switches, dict)
+    kill_switches.pop(field)
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == expected_reason
+    assert decision["blocked_scope"] == blocked_scope
+
+
+def test_quota_decision_fails_closed_when_limits_are_missing() -> None:
+    snapshot = _quota_snapshot()
+    snapshot.pop("limits")
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "global_quota_missing"
+    assert decision["blocked_scope"] == "global"
+
+
+def test_quota_decision_fails_closed_when_limit_record_is_not_mapping() -> None:
+    snapshot = _quota_snapshot()
+    limits = snapshot["limits"]
+    assert isinstance(limits, dict)
+    limits["global"] = "not-a-limit-record"
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "global_quota_missing"
+    assert decision["blocked_scope"] == "global"
+
+
+def test_quota_decision_fails_closed_when_scoped_limit_record_is_missing() -> None:
+    snapshot = _quota_snapshot()
+    limits = snapshot["limits"]
+    assert isinstance(limits, dict)
+    teams = limits["teams"]
+    assert isinstance(teams, dict)
+    teams.pop("team-a")
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "team_quota_missing"
+    assert decision["blocked_scope"] == "team"
+
+
+def test_quota_decision_treats_negative_limit_as_zero() -> None:
+    snapshot = _quota_snapshot()
+    limits = snapshot["limits"]
+    assert isinstance(limits, dict)
+    global_limit = limits["global"]
+    assert isinstance(global_limit, dict)
+    global_limit["limit"] = -1
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "global_quota_exceeded"
+
+
+def test_quota_decision_treats_non_integer_limit_as_zero() -> None:
+    snapshot = _quota_snapshot()
+    limits = snapshot["limits"]
+    assert isinstance(limits, dict)
+    global_limit = limits["global"]
+    assert isinstance(global_limit, dict)
+    global_limit["limit"] = "not-an-integer"
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is False
+    assert decision["reason"] == "global_quota_exceeded"
+
+
+def test_quota_decision_treats_negative_usage_as_zero() -> None:
+    snapshot = _quota_snapshot()
+    limits = snapshot["limits"]
+    assert isinstance(limits, dict)
+    global_limit = limits["global"]
+    assert isinstance(global_limit, dict)
+    global_limit["limit"] = 1
+    global_limit["used"] = -1
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is True
+
+
+def test_quota_decision_treats_non_integer_usage_as_zero() -> None:
+    snapshot = _quota_snapshot()
+    limits = snapshot["limits"]
+    assert isinstance(limits, dict)
+    global_limit = limits["global"]
+    assert isinstance(global_limit, dict)
+    global_limit["limit"] = 1
+    global_limit["used"] = "not-an-integer"
+
+    decision = _decision(snapshot)
+
+    assert decision["allowed"] is True
+
+
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        ({"limit": 4}, 4),
+        ({"limit": 0}, 0),
+        ({"limit": -1}, 0),
+        ({"limit": "4"}, 0),
+    ],
+)
+def test_quota_limit_count_has_exact_integer_boundaries(
+    record: dict[str, object],
+    expected: int,
+) -> None:
+    from mcp_broker.quota_policy import _limit_count
+
+    assert _limit_count(record) == expected
+
+
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        ({"used": 4}, 4),
+        ({"used": 0}, 0),
+        ({"used": -1}, 0),
+        ({"used": "4"}, 0),
+    ],
+)
+def test_quota_used_count_has_exact_integer_boundaries(
+    record: dict[str, object],
+    expected: int,
+) -> None:
+    from mcp_broker.quota_policy import _used_count
+
+    assert _used_count(record) == expected
+
+
 def test_quota_decision_rejects_missing_tenant_context() -> None:
     from mcp_broker.quota_policy import QuotaPolicyError, decide_quota
 
@@ -158,6 +328,31 @@ def test_quota_decision_rejects_missing_tenant_context() -> None:
             tool_name="example.search",
             quota_snapshot=_quota_snapshot(),
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("team_id", ""),
+        ("team_id", None),
+        ("upstream_id", "example/upstream"),
+        ("tool_name", r"example\\search"),
+    ],
+)
+def test_quota_decision_rejects_invalid_identifiers(field: str, value: object) -> None:
+    from mcp_broker.quota_policy import QuotaPolicyError, decide_quota
+
+    kwargs = {
+        "tenant_context": TENANT_CONTEXT,
+        "team_id": "team-a",
+        "upstream_id": "example-upstream",
+        "tool_name": "example.search",
+        "quota_snapshot": _quota_snapshot(),
+    }
+    kwargs[field] = value
+
+    with pytest.raises(QuotaPolicyError, match=field):
+        decide_quota(**kwargs)
 
 
 def test_quota_denial_audit_payload_contains_attribution_scope() -> None:
