@@ -21,7 +21,10 @@ def test_local_mcp_registry_publish_reuses_gh_token_without_device_login(
     capture = tmp_path / "publisher-capture.txt"
     commands = {
         "gh": """#!/bin/sh
-if [ "$1 $2" = "auth token" ]; then printf 'fake-github-token\\n'; exit 0; fi
+if [ "$1 $2 $3 $4" = "auth token --hostname $EXPECTED_GITHUB_HOST" ]; then
+  printf 'fake-github-token\\n'
+  exit 0
+fi
 exit 2
 """,
         "mcp-publisher": """#!/bin/sh
@@ -40,6 +43,7 @@ printf 'publish\\n'
     env = os.environ.copy()
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     env["PUBLISH_CAPTURE"] = str(capture)
+    env["EXPECTED_GITHUB_HOST"] = read_make_variable_defaults(ROOT)["GITHUB_HOST"]
 
     result = subprocess.run(
         [
@@ -205,3 +209,142 @@ exit 0
     assert result.returncode != 0
     assert "builder driver mismatch" in result.stderr
     assert not any("buildx build" in call for call in capture.read_text().splitlines())
+
+
+def test_docker_publish_authenticates_registries_through_password_stdin(
+    tmp_path: Path,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "docker-login-capture.txt"
+    docker = bin_dir / "docker"
+    docker.write_text(
+        """#!/bin/sh
+password=$(cat)
+password_state=unknown
+case "$password" in
+  fake-docker-token) password_state=docker ;;
+  fake-github-token) password_state=github ;;
+esac
+printf 'password=%s args=%s\\n' "$password_state" "$*" >> "$DOCKER_CAPTURE"
+""",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    gh = bin_dir / "gh"
+    gh.write_text(
+        """#!/bin/sh
+if [ "$1 $2 $3 $4" = "auth token --hostname $EXPECTED_GITHUB_HOST" ]; then
+  printf 'fake-github-token\\n'
+  exit 0
+fi
+if [ "$1 $2 $3 $4 $5 $6" = "api --hostname $EXPECTED_GITHUB_HOST user --jq .login" ]; then
+  printf 'fake-github-user\\n'
+  exit 0
+fi
+exit 2
+""",
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["DOCKER_CAPTURE"] = str(capture)
+    env["DOCKERHUB_USERNAME"] = "fake-docker-user"
+    env["DOCKERHUB_TOKEN"] = "fake-docker-token"
+    make_vars = read_make_variable_defaults(ROOT)
+    env["EXPECTED_GITHUB_HOST"] = make_vars["GITHUB_HOST"]
+    docker_registry_host = make_vars["DOCKER_REGISTRY_HOST"]
+    ghcr_registry_host = make_vars["GHCR_REGISTRY_HOST"]
+
+    result = subprocess.run(
+        ["make", "--no-print-directory", "_publish-everywhere-docker-auth"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert capture.read_text(encoding="utf-8") == (
+        f"password=docker args=login {docker_registry_host} "
+        "--username fake-docker-user --password-stdin\n"
+        f"password=github args=login {ghcr_registry_host} "
+        "--username fake-github-user --password-stdin\n"
+    )
+    assert "fake-docker-token" not in result.stdout + result.stderr
+    assert "fake-github-token" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "failure_stage",
+    [
+        "dockerhub-login",
+        "github-token-failure",
+        "github-token-empty",
+        "github-user-failure",
+        "github-user-empty",
+        "ghcr-login",
+    ],
+)
+def test_docker_publish_auth_failure_blocks_builder(
+    tmp_path: Path,
+    failure_stage: str,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "docker-capture.txt"
+    docker = bin_dir / "docker"
+    docker.write_text(
+        """#!/bin/sh
+password=$(cat)
+printf '%s\\n' "$*" >> "$DOCKER_CAPTURE"
+if [ "$FAILURE_STAGE" = "dockerhub-login" ] && [ "$password" = "fake-docker-token" ]; then exit 1; fi
+if [ "$FAILURE_STAGE" = "ghcr-login" ] && [ "$password" = "fake-github-token" ]; then exit 1; fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    gh = bin_dir / "gh"
+    gh.write_text(
+        """#!/bin/sh
+if [ "$1 $2 $3 $4" = "auth token --hostname $EXPECTED_GITHUB_HOST" ]; then
+  if [ "$FAILURE_STAGE" = "github-token-failure" ]; then exit 1; fi
+  if [ "$FAILURE_STAGE" != "github-token-empty" ]; then printf 'fake-github-token\\n'; fi
+  exit 0
+fi
+if [ "$1 $2 $3 $4 $5 $6" = "api --hostname $EXPECTED_GITHUB_HOST user --jq .login" ]; then
+  if [ "$FAILURE_STAGE" = "github-user-failure" ]; then exit 1; fi
+  if [ "$FAILURE_STAGE" != "github-user-empty" ]; then printf 'fake-github-user\\n'; fi
+  exit 0
+fi
+exit 2
+""",
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
+    make_vars = read_make_variable_defaults(ROOT)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["DOCKER_CAPTURE"] = str(capture)
+    env["DOCKERHUB_USERNAME"] = "fake-docker-user"
+    env["DOCKERHUB_TOKEN"] = "fake-docker-token"
+    env["EXPECTED_GITHUB_HOST"] = make_vars["GITHUB_HOST"]
+    env["FAILURE_STAGE"] = failure_stage
+
+    result = subprocess.run(
+        ["make", "--no-print-directory", "_publish-everywhere-docker"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not any(
+        call.startswith("buildx")
+        for call in capture.read_text(encoding="utf-8").splitlines()
+    )

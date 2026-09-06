@@ -244,7 +244,7 @@ def test_publish_everywhere_orchestration_is_sequenced_and_parallel() -> None:
     assert publish_section.index("_publish-everywhere-required-env-check") < pypi_index
     assert publish_section.index("_publish-everywhere-docker-hub-public") < pypi_index
     assert 'HOMEBREW_EFFECTIVE_TOKEN="$${HOMEBREW_TAP_TOKEN:-}"' in makefile
-    assert 'HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token)"' in makefile
+    assert 'gh auth token --hostname "$(GITHUB_HOST)"' in makefile
     assert "DOCKERHUB_USERNAME is required before publish-everywhere starts" in makefile
     assert "DOCKERHUB_TOKEN is required before publish-everywhere starts" in makefile
     assert '$(call timed_make,"publish-everywhere: pypi",_publish-everywhere-pypi)' in publish_section
@@ -393,9 +393,13 @@ def test_publish_everywhere_auth_preflight_runs_before_first_registry_write() ->
     assert publish_section.index("_publish-everywhere-auth-preflight") < publish_section.index(
         "_publish-everywhere-pypi"
     )
+    assert "_publish-everywhere-docker-auth" in publish_section
+    assert publish_section.index("_publish-everywhere-docker-auth") < publish_section.index(
+        "_publish-everywhere-pypi"
+    )
     assert '$(NPM) whoami --registry "$(NPM_REGISTRY_URL)"' in auth_section
-    assert "gh auth status --hostname github.com" in auth_section
-    assert 'gh api "orgs/$(PUBLIC_NAMESPACE)/packages/container/$(DOCKER_IMAGE_NAME)"' in auth_section
+    assert 'gh auth status --hostname "$(GITHUB_HOST)"' in auth_section
+    assert 'gh api --hostname "$(GITHUB_HOST)"' in auth_section
     assert "GHCR package is not public" in auth_section
     assert "GIT_ASKPASS=\"$$tmpdir/git-askpass.sh\"" in auth_section
     assert "git ls-remote \"$(HOMEBREW_TAP_CLONE_URL)\" HEAD" in auth_section
@@ -419,8 +423,11 @@ def _run_auth_preflight(tmp_path: Path, *, token_lookup_fails: bool) -> tuple[su
     commands = {
         "gh": """#!/bin/sh
 if [ "$1 $2" = "auth status" ]; then exit 0; fi
-if [ "$1" = "api" ]; then printf 'public\\n'; exit 0; fi
-if [ "$1 $2" = "auth token" ]; then
+if [ "$1" = "api" ] && [ "$2 $3" = "--hostname $EXPECTED_GITHUB_HOST" ]; then
+  printf 'public\\n'
+  exit 0
+fi
+if [ "$1 $2 $3 $4" = "auth token --hostname $EXPECTED_GITHUB_HOST" ]; then
   if [ "${FAKE_GH_TOKEN_FAIL:-0}" = "1" ]; then exit 1; fi
   printf 'fake-github-token\\n'
   exit 0
@@ -450,6 +457,7 @@ done
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     env["AUTH_CAPTURE"] = str(capture)
     env["FAKE_GH_TOKEN_FAIL"] = "1" if token_lookup_fails else "0"
+    env["EXPECTED_GITHUB_HOST"] = read_make_variable_defaults(ROOT)["GITHUB_HOST"]
     result = subprocess.run(
         ["make", "--no-print-directory", "_publish-everywhere-auth-preflight"],
         cwd=ROOT,
@@ -501,7 +509,10 @@ def test_docker_hub_token_stays_out_of_process_arguments() -> None:
     assert "UV_PUBLISH_TOKEN is required for local PyPI publication" in makefile
     assert "NODE_AUTH_TOKEN is required for CI publication" in makefile
     assert "HOMEBREW_EFFECTIVE_TOKEN=\"$${HOMEBREW_TAP_TOKEN:-}\"" in makefile
-    assert "HOMEBREW_EFFECTIVE_TOKEN=\"$$(gh auth token)\"" in makefile
+    assert (
+        'HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token --hostname "$(GITHUB_HOST)")"'
+        in makefile
+    )
 
     github_release_section = makefile.split(
         "_publish-everywhere-github-release:",
