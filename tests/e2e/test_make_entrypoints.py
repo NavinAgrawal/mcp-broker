@@ -245,6 +245,34 @@ def test_cits_repo_override_handles_single_tier_selection(
     assert absent not in result.stdout
 
 
+def test_cits_repo_override_summarizes_selected_paths() -> None:
+    env = os.environ.copy()
+    env["CITS_CHANGED_FILES"] = "src/mcp_broker/daemon.py"
+
+    result = subprocess.run(
+        [
+            str(ROOT / ".cits" / "test-impact.sh"),
+            "--tier",
+            "push",
+            "--repo",
+            str(ROOT),
+            "--base",
+            "origin/main",
+            "--dry-run",
+        ],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "make test PYTEST_ARGS=<" in result.stdout
+    assert "tests/unit/test_daemon" not in result.stdout
+
+
 def test_make_profile_snippet_keeps_home_placeholder_public_safe() -> None:
     result = subprocess.run(
         make_command(
@@ -298,10 +326,14 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert 'PYTHONPATH="$(PYTHONPATH)" $(MUTMUT)' not in mutation_section
     assert "scripts/check_mutation_stats.py" in mutation_section
     assert '$(if $(MUTATION_ARGS),--include-mutants $(MUTATION_ARGS),)' in mutation_section
+    assert 'if [[ -z "$(MUTATION_ARGS)" ]]; then $(MUTMUT) results; fi' in mutation_section
+    assert '$(MUTMUT) run --max-children $(MUTATION_MAX_CHILDREN) $(MUTATION_ARGS) > "$(MUTATION_RUN_LOG)" 2>&1' in mutation_section
+    assert 'mutation selectors: $(words $(MUTATION_ARGS))' in mutation_section
+    assert "MUTATION_RUN_LOG ?= $(QUALITY_DIR)/mutmut-run.log" in makefile
     assert "CPU_COUNT ?=" in makefile
     assert "LOCAL_CPU_BUDGET ?= $(if $(filter Darwin,$(UNAME_S)),2,4)" in makefile
     assert "MUTATION_QOS_PREFIX ?= $(if $(filter Darwin,$(UNAME_S)),taskpolicy -b,)" in makefile
-    assert "@$(MUTATION_QOS_PREFIX) $(MUTMUT) run" in mutation_section
+    assert "$(MUTATION_QOS_PREFIX) $(MUTMUT) run" in mutation_section
     mutation_children_default = re.search(r"^MUTATION_MAX_CHILDREN \?= (.+)$", makefile, re.M)
     assert mutation_children_default is not None
     assert mutation_children_default.group(1) == "$(if $(filter Darwin,$(UNAME_S)),1,$(LOCAL_CPU_BUDGET))"
@@ -338,6 +370,7 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert "mutate-file: ## Run one source-and-affected-tests mutation slice" in makefile
     assert 'test -n "$(MUTATE_FILE)"' in makefile
     assert 'test -n "$(MUTATION_TESTS_TO_RUN)"' in makefile
+    assert 'test -n "$(MUTATION_ARGS)"' in makefile
     assert 'MUTATION_PATHS_TO_MUTATE="$(MUTATE_FILE)"' in makefile
     assert 'MUTATION_STATS_JSON ?= $(QUALITY_DIR)/mutation_stats.json' in makefile
     assert (
@@ -476,8 +509,6 @@ def test_make_test_gates_use_parallel_workers_and_fanout() -> None:
         maxsplit=1,
     )[0]
 
-    assert 'ifneq ($(strip $(PYTEST_ARGS)),)' in test_section
-    assert '$(call timed_make,"test: targeted tests",_test-targeted)' in test_section
     assert '$(call timed_make,"test: all tiers",$(call parallel_make_args,$(TEST_JOBS)) _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout)' in test_section
     assert 'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/unit"' in makefile
     assert 'RUNTIME_ROOT="$(TEST_RUNTIME_ROOT)/journey"' in makefile
@@ -504,6 +535,64 @@ def test_make_test_gates_use_parallel_workers_and_fanout() -> None:
         "PUBLISH_CHECK_JOBS",
     ]:
         assert f"-j $({job_variable})" not in makefile
+
+
+def test_targeted_test_gate_labels_and_summarizes_only_selected_tests() -> None:
+    makefile = read_combined_makefiles(ROOT)
+    test_section = makefile.split("test: ## Run all test tiers in parallel", maxsplit=1)[1].split(
+        "_test-targeted:", maxsplit=1
+    )[0]
+
+    assert "PYTEST_TARGETED_LOG ?= $(TEST_LOG_DIR)/targeted.log" in makefile
+    assert 'ifneq ($(strip $(PYTEST_ARGS)),)' in test_section
+    targeted_test_section = test_section.split(
+        'ifneq ($(strip $(PYTEST_ARGS)),)', maxsplit=1
+    )[1].split("else", maxsplit=1)[0]
+    assert '$(call log_step,"Targeted test selection")' in targeted_test_section
+    assert '$(call log_success,"Targeted test selection passed")' in targeted_test_section
+    assert "All test tiers" not in targeted_test_section
+    assert '$(call timed_make,"test: targeted tests",_test-targeted)' in test_section
+
+    targeted_runner = makefile.split("_test-targeted:", maxsplit=1)[1].split(
+        "_test-unit-fanout:", maxsplit=1
+    )[0]
+    assert '> "$(PYTEST_TARGETED_LOG)" 2>&1' in targeted_runner
+    assert "tr '\\r' '\\n' < \"$(PYTEST_TARGETED_LOG)\"" in targeted_runner
+    assert "awk '/^Results / {show=1} show'" in targeted_runner
+    assert 'tail -n 6 "$(PYTEST_TARGETED_LOG)"' in targeted_runner
+    assert 'cat "$(PYTEST_TARGETED_LOG)" >&2' in targeted_runner
+
+
+def test_targeted_live_gate_summarizes_selected_tests() -> None:
+    makefile = read_combined_makefiles(ROOT)
+    live_runner = makefile.split("test-live-targeted:", maxsplit=1)[1].split(
+        "test-e2e:", maxsplit=1
+    )[0]
+
+    assert "PYTEST_LIVE_TARGETED_LOG ?= $(TEST_LOG_DIR)/targeted-live.log" in makefile
+    assert '> "$(PYTEST_LIVE_TARGETED_LOG)" 2>&1' in live_runner
+    assert "tr '\\r' '\\n' < \"$(PYTEST_LIVE_TARGETED_LOG)\"" in live_runner
+    assert "awk '/^Results / {show=1} show'" in live_runner
+    assert 'tail -n 6 "$(PYTEST_LIVE_TARGETED_LOG)"' in live_runner
+    assert 'cat "$(PYTEST_LIVE_TARGETED_LOG)" >&2' in live_runner
+
+
+def test_mutate_file_rejects_a_whole_file_run_without_exact_mutants() -> None:
+    result = subprocess.run(
+        make_command(
+            "mutate-file",
+            "MUTATE_FILE=src/mcp_broker/config.py",
+            "MUTATION_TESTS_TO_RUN=tests/unit/test_config_contract_part02.py",
+        ),
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    assert result.returncode == 2
+    assert "MUTATION_ARGS is required for exact changed-callable scope" in result.stderr
 
 
 def test_make_parallel_gates_report_child_and_total_elapsed_time() -> None:

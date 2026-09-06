@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-ALLOWED_UPSTREAM_MODES = frozenset({"shared", "per_session", "disabled"})
+ALLOWED_UPSTREAM_MODES = frozenset({"shared", "per_session", "per_call", "disabled"})
 ALLOWED_UPSTREAM_TRANSPORTS = frozenset({"stdio", "http", "sse"})
 
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 60

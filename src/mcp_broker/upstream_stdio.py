@@ -44,12 +44,14 @@ class StdioUpstreamProcess:
         session_context: dict[str, str] | None = None,
         event_logger: UpstreamEventLogger | None = None,
         runtime_paths: RuntimePaths | None = None,
+        process_metadata_name: str | None = None,
     ) -> None:
         self.upstream = upstream
         self.runtime_state_dir = runtime_state_dir
         self.session_context = {} if session_context is None else session_context
         self._event_logger = event_logger
         self._runtime_paths = runtime_paths
+        self._process_metadata_name = process_metadata_name or upstream.name
         self._process: subprocess.Popen[bytes] | None = None
         self._process_metadata_path: Path | None = None
         self._stderr_drainer: threading.Thread | None = None
@@ -242,7 +244,8 @@ class StdioUpstreamProcess:
                     )
         _close_process_pipes(process, include_stderr=False)
         self._process = None
-        self._remove_process_metadata()
+        if not remaining_processes:
+            self._remove_process_metadata()
         if self._stderr_drainer is not None:
             self._stderr_drainer.join(timeout=KILL_WAIT_SECONDS)
             self._stderr_drainer = None
@@ -323,7 +326,7 @@ class StdioUpstreamProcess:
         pid = self._process.pid
         self._process_metadata_path = write_process_metadata(
             self._runtime_paths,
-            name=self.upstream.name,
+            name=self._process_metadata_name,
             pid=pid,
             process_group_id=os.getpgid(pid),
             broker_pid=os.getpid(),
@@ -332,7 +335,9 @@ class StdioUpstreamProcess:
     def _remove_process_metadata(self) -> None:
         metadata_path = self._process_metadata_path
         if metadata_path is None and self._runtime_paths is not None:
-            metadata_path = self._runtime_paths.upstream_pid_dir / f"{self.upstream.name}.json"
+            metadata_path = (
+                self._runtime_paths.upstream_pid_dir / f"{self._process_metadata_name}.json"
+            )
         if metadata_path is not None:
             metadata_path.unlink(missing_ok=True)
         self._process_metadata_path = None

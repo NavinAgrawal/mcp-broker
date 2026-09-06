@@ -361,6 +361,11 @@ class UpstreamProcessSupervisor:
         self.event_logger(event, self.upstream.name, fields)
 
 
+def _validate_registry_upstream_mode(upstream: UpstreamConfig) -> None:
+    if upstream.mode == "per_call":
+        raise ValueError("per_call upstreams require broker call lifecycle")
+
+
 @dataclass
 class UpstreamProcessRegistry:
     runtime_state_dir: Path
@@ -376,6 +381,7 @@ class UpstreamProcessRegistry:
         *,
         session_id: str | None,
     ) -> UpstreamProcessSupervisor:
+        _validate_registry_upstream_mode(upstream)
         key = self._registry_key(upstream, session_id=session_id)
         supervisor = self._supervisors.get(key)
         if supervisor is None:

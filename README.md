@@ -356,6 +356,7 @@ Supported concepts:
 - `allow_mutating_upstreams` is required before a mutating upstream can be exposed.
 - `shared` mode reuses one upstream process where shared account state is acceptable.
 - `per_session` mode isolates upstream state per client session.
+- `per_call` mode starts a fresh stdio process for each tool call or tool-list operation, then stops that process before returning.
 - `disabled` mode keeps compatibility records without exposing the upstream.
 
 Protected surfaces such as OAuth, browser state, filesystem roots, and databases require explicit config and validation. Public examples stay disabled or placeholder-based.

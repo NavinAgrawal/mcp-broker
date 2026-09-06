@@ -111,6 +111,48 @@ def test_mutation_stats_filters_report_to_selected_mutants(
     assert report["counts"]["segfault"] == 0
 
 
+def test_mutation_stats_filters_report_with_a_changed_callable_pattern(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mutants_dir = tmp_path / "mutants"
+    report_path = tmp_path / "quality" / "mutation_stats.json"
+    meta_path = mutants_dir / "src" / "mcp_broker" / "sample.py.meta"
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(
+        json.dumps(
+            {
+                "exit_code_by_key": {
+                    "mcp_broker.sample.x_changed__mutmut_1": 1,
+                    "mcp_broker.sample.x_changed__mutmut_2": 1,
+                    "mcp_broker.sample.x_unchanged__mutmut_1": 0,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--mutants-dir",
+            str(mutants_dir),
+            "--output-json",
+            str(report_path),
+            "--min-score",
+            "100",
+            "--include-mutants",
+            "mcp_broker.sample.x_changed__mutmut_*",
+        ]
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert result == 0
+    assert "Mutation gate passed" in capsys.readouterr().out
+    assert report["total"] == 2
+    assert report["passed"] == 2
+    assert report["counts"]["survived"] == 0
+
+
 def test_mutation_stats_fails_when_selected_mutant_is_missing(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

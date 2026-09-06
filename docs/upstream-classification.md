@@ -51,6 +51,18 @@ task.
 | Cloud deploy or infrastructure connector | `per_session` and protected | Remote mutations must not be shared by default. |
 | Project-specific connector | `per_session` or separate record | Account, project, or root selection must stay explicit. |
 
+## Call-Isolated Candidates
+
+Use `per_call` for a stdio adapter that must perform one operation and exit without
+retaining process state. The broker starts a fresh process for each tool call or
+tool-list operation and stops it before returning. This mode cannot use HTTP or
+SSE transports.
+
+| Upstream Type | Initial Mode | Risk |
+|---|---|---|
+| One-operation command adapter | `per_call` | Startup cost is paid on every operation; no process state survives. |
+| Exact-resource lifecycle adapter | `per_call` and protected | Each request targets one named resource and must not affect other active resources. |
+
 ## Disabled Compatibility Records
 
 Use `disabled` for imported MCP records until they have:

@@ -116,6 +116,7 @@ rm -f "$LOG_PATH"
 rm -rf "$MUTANTS_EXPORT_DIR"
 mkdir -p "$MUTANTS_EXPORT_DIR"
 
+set +e
 "${QOS_PREFIX[@]}" docker run --rm \
   -e MCP_BROKER_MUTATION_MAX_CHILDREN="$MAX_CHILDREN" \
   -e MCP_BROKER_MUTATION_ARGS="$MUTATION_ARGS_VALUE" \
@@ -189,6 +190,23 @@ PY
       MUTATION_MAX_CHILDREN="$MCP_BROKER_MUTATION_MAX_CHILDREN" \
       MUTATION_ARGS="$MCP_BROKER_MUTATION_ARGS" \
       MUTATION_STATS_JSON=/output/mutation_stats.json
-  ' 2>&1 | tee "$LOG_PATH"
+  ' 2>&1 | if [[ -n "$MUTATION_ARGS_VALUE" ]]; then
+    tee "$LOG_PATH" >/dev/null
+  else
+    tee "$LOG_PATH"
+  fi
+pipeline_status=("${PIPESTATUS[@]}")
+container_status=${pipeline_status[0]}
+log_status=${pipeline_status[1]}
+set -e
+if [[ "$container_status" -ne 0 || "$log_status" -ne 0 ]]; then
+  if [[ -n "$MUTATION_ARGS_VALUE" ]]; then
+    tail -n 80 "$LOG_PATH" >&2
+  fi
+  if [[ "$container_status" -ne 0 ]]; then
+    exit "$container_status"
+  fi
+  exit "$log_status"
+fi
 
 printf "linux_mutation=true image=%s stats=%s log=%s\n" "$IMAGE" "$ROOT/var/quality/mutation_stats.json" "$LOG_PATH"

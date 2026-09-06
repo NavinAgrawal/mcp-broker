@@ -7,14 +7,26 @@ from typing import Any
 import pytest
 
 from mcp_broker import upstream_process
+from mcp_broker.config import UpstreamConfig
 from mcp_broker.upstream_process import (
     _drain_pipe,
     _process_group_members,
     _start_drainer,
+    _validate_registry_upstream_mode,
 )
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.error_simulation]
+
+
+def test_registry_mode_guard_rejects_per_call_with_exact_error() -> None:
+    upstream = UpstreamConfig(name="single-use", command="worker", mode="per_call")
+
+    with pytest.raises(
+        ValueError,
+        match="^per_call upstreams require broker call lifecycle$",
+    ):
+        _validate_registry_upstream_mode(upstream)
 
 
 def test_process_output_drainer_flushes_log_before_pipe_closes(tmp_path: Path) -> None:

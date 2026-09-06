@@ -113,6 +113,23 @@ def test_selector_maps_profiles_module_to_profile_config_contract() -> None:
     assert "tests/unit/test_profile_config_contract.py" in result.stdout.splitlines()
 
 
+def test_selector_maps_config_modes_to_config_owner_contracts() -> None:
+    result = _run_selector(ROOT, ["src/mcp_broker/config_modes.py"])
+
+    assert result.returncode == 0
+    assert "tests/unit/test_config_contract_part02.py" in result.stdout.splitlines()
+    assert "tests/unit/test_config_validate_contract.py" in result.stdout.splitlines()
+    assert "tests/unit/test_schema_contract.py" in result.stdout.splitlines()
+
+
+def test_selector_maps_daemon_errors_to_daemon_owner_contracts() -> None:
+    result = _run_selector(ROOT, ["src/mcp_broker/daemon_errors.py"])
+
+    assert result.returncode == 0
+    assert "tests/unit/test_daemon_jsonrpc_contract_part04.py" in result.stdout.splitlines()
+    assert "tests/unit/test_daemon_upstreams_contract.py" in result.stdout.splitlines()
+
+
 def test_selector_maps_support_module_to_importing_tests_only(tmp_path: Path) -> None:
     (tmp_path / "tests/support").mkdir(parents=True)
     (tmp_path / "tests/unit").mkdir(parents=True)

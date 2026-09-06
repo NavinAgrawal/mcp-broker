@@ -136,12 +136,31 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["command"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "per_call"
+              }
+            },
+            "required": ["mode"]
+          },
+          "then": {
+            "properties": {
+              "transport": {
+                "const": "stdio"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "enabled": {
           "type": "boolean"
         },
         "mode": {
-          "enum": ["shared", "per_session", "disabled"]
+          "enum": ["shared", "per_session", "per_call", "disabled"]
         },
         "transport": {
           "enum": ["stdio", "http", "sse"]

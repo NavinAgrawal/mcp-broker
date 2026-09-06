@@ -26,6 +26,7 @@ from mcp_broker.daemon_helpers import (
     stdio_client_name as _stdio_client_name,
     utc_timestamp as _utc_timestamp,
 )
+from mcp_broker.daemon_errors import BrokerDaemonError, BrokerRequestTooLarge
 from mcp_broker.daemon_provenance import git_sha as _git_sha_impl
 from mcp_broker.daemon_provenance import source_provenance as _source_provenance_impl
 from mcp_broker.daemon_request_context import BrokerDaemonRequestContextMixin
@@ -70,14 +71,6 @@ def _source_provenance() -> dict[str, str]:
     )
 
 
-class BrokerDaemonError(Exception):
-    """Raised when daemon lifecycle operations fail."""
-
-
-class BrokerRequestTooLarge(BrokerDaemonError):
-    """Raised when a socket request exceeds its configured byte limit."""
-
-
 @dataclass
 class BrokerDaemon(
     BrokerDaemonStatusMixin,
@@ -98,6 +91,10 @@ class BrokerDaemon(
         self._stop_requested = threading.Event()
         self._protocol = McpProtocolHandler(server_name="mcp-broker", server_version=__version__)
         self._stdio_upstreams: dict[str | tuple[str, str], StdioUpstreamClientProtocol] = {}
+        self._active_per_call_upstreams: dict[
+            str, tuple[str, StdioUpstreamClientProtocol]
+        ] = {}
+        self._upstreams_shutdown = False
         # Guards every mutation/iteration of _stdio_upstreams (insert in
         # _stdio_client, pop in _shutdown_session_upstreams, clear in
         # _shutdown_upstreams, the health read, and the idle janitor sweep).
@@ -386,6 +383,7 @@ class BrokerDaemon(
         session_context: dict[str, str] | None = None,
         event_logger: UpstreamEventLogger | None = None,
         runtime_paths: RuntimePaths | None = None,
+        process_metadata_name: str | None = None,
     ) -> StdioUpstreamClientProtocol:
         return StdioUpstreamProcess(
             upstream,
@@ -393,6 +391,7 @@ class BrokerDaemon(
             session_context=session_context,
             event_logger=event_logger,
             runtime_paths=runtime_paths,
+            process_metadata_name=process_metadata_name,
         )
 
     def _create_http_upstream_client(self, upstream: UpstreamConfig) -> HttpUpstreamClientProtocol:
@@ -533,11 +532,17 @@ class BrokerDaemon(
         stopped_upstreams: list[str] = []
         remaining_broker_processes: list[int] = []
         with self._stdio_upstreams_lock:
+            self._upstreams_shutdown = True
             clients = sorted(self._stdio_upstreams.items(), key=lambda item: str(item[0]))
             self._stdio_upstreams.clear()
+            active_per_call_clients = sorted(self._active_per_call_upstreams.items())
+            self._active_per_call_upstreams.clear()
         for key, client in clients:
             remaining_broker_processes.extend(client.stop())
             stopped_upstreams.append(_stdio_client_name(key))
+        for call_id, (upstream_name, client) in active_per_call_clients:
+            remaining_broker_processes.extend(client.stop())
+            stopped_upstreams.append(f"{upstream_name}:call:{call_id}")
         self._http_upstreams.clear()
         return {
             "stopped_upstreams": stopped_upstreams,

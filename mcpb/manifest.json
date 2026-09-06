@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "mcp-broker",
   "display_name": "mcp-broker",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Local MCP broker that exposes many configured upstream MCP servers through one client entry.",
   "long_description": "mcp-broker runs a local broker process and a compact stdio facade so MCP clients can connect to one local server instead of loading every upstream tool directly.",
   "author": {

@@ -186,9 +186,10 @@ upstreams:
       PROJECT_DIR: client_cwd
 ```
 
-`session_env` requires `mode: per_session` because the upstream process reads
-this value at startup. A shared process would keep the first caller's project
-state for later callers.
+`session_env` requires `mode: per_session` or `mode: per_call` because the
+upstream process reads this value at startup. A shared process would keep the
+first caller's project state for later callers. `per_call` resolves the current
+call context into a fresh process and stops that process after the operation.
 
 ## Auth Repair
 

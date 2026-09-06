@@ -372,9 +372,58 @@ upstreams:
 
     with pytest.raises(
         ValueError,
-        match="upstreams.session-tool.session_env requires mode: per_session",
+        match="upstreams.session-tool.session_env requires mode: per_session or per_call",
     ):
         BrokerConfig.from_file(config_file)
+
+
+def test_upstream_session_env_accepts_per_call_mode(tmp_path: Path) -> None:
+    from mcp_broker.config import BrokerConfig
+
+    config_file = tmp_path / "broker.yaml"
+    config_file.write_text(
+        """
+runtime:
+  root: /tmp/mcp-broker-test
+upstreams:
+  task-runner:
+    command: task-runner
+    mode: per_call
+    session_env:
+      PROJECT_DIR: client_cwd
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = BrokerConfig.from_file(config_file)
+
+    assert config.upstreams["task-runner"].mode == "per_call"
+    assert config.upstreams["task-runner"].session_env == {"PROJECT_DIR": "client_cwd"}
+
+
+def test_per_call_mode_rejects_non_stdio_transport(tmp_path: Path) -> None:
+    from mcp_broker.config import BrokerConfig
+
+    config_file = tmp_path / "broker.yaml"
+    config_file.write_text(
+        """
+runtime:
+  root: /tmp/mcp-broker-test
+upstreams:
+  remote-task:
+    command: https://example.invalid/mcp
+    mode: per_call
+    transport: http
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="upstreams.remote-task.mode per_call requires transport: stdio",
+    ):
+        BrokerConfig.from_file(config_file)
+
 
 def test_upstream_request_meta_must_reference_configured_env(tmp_path: Path) -> None:
     from mcp_broker.config import BrokerConfig

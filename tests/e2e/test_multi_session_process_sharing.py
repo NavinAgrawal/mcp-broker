@@ -69,6 +69,16 @@ def test_per_session_upstream_requires_session_id(tmp_path: Path) -> None:
         registry.get_or_start(upstream, session_id=None)
 
 
+def test_legacy_process_registry_rejects_per_call_mode(tmp_path: Path) -> None:
+    from mcp_broker.upstream_process import UpstreamProcessRegistry
+
+    upstream = _upstream(tmp_path, name="single-use", mode="per_call")
+    registry = UpstreamProcessRegistry(runtime_state_dir=tmp_path / "runtime" / "state")
+
+    with pytest.raises(ValueError, match="per_call upstreams require broker call lifecycle"):
+        registry.get_or_start(upstream, session_id=None)
+
+
 def _upstream(tmp_path: Path, *, name: str, mode: str):
     from mcp_broker.config import UpstreamConfig
 

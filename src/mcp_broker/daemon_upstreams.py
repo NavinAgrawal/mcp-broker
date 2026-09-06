@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from typing import TYPE_CHECKING
 
 from mcp_broker.broker import BrokerToolError
@@ -36,6 +37,10 @@ class BrokerDaemonUpstreamMixin:
     if TYPE_CHECKING:
         broker_config: BrokerConfig | None
         _stdio_upstreams: dict[str | tuple[str, str], StdioUpstreamClientProtocol]
+        _active_per_call_upstreams: dict[
+            str, tuple[str, StdioUpstreamClientProtocol]
+        ]
+        _upstreams_shutdown: bool
         _stdio_upstreams_lock: threading.Lock
         _http_upstreams: dict[str, HttpUpstreamClientProtocol]
         _paths: RuntimePaths
@@ -48,6 +53,7 @@ class BrokerDaemonUpstreamMixin:
             session_context: dict[str, str] | None = ...,
             event_logger: UpstreamEventLogger | None = ...,
             runtime_paths: RuntimePaths | None = ...,
+            process_metadata_name: str | None = ...,
         ) -> StdioUpstreamClientProtocol: ...
 
         def _create_http_upstream_client(
@@ -127,11 +133,58 @@ class BrokerDaemonUpstreamMixin:
         session_context: dict[str, str] | None,
     ) -> dict[str, object]:
         assert self.broker_config is not None
-        client = self._stdio_client(
+        upstream = self.broker_config.upstreams[upstream_name]
+        per_call = upstream.mode == "per_call"
+        if not per_call:
+            client = self._stdio_client(
+                upstream_name,
+                session_id=session_id,
+                session_context=session_context,
+            )
+            return self._call_stdio_client_or_repair(
+                client,
+                upstream_name,
+                tool_name,
+                arguments,
+                timeout_seconds,
+            )
+        call_id, client = self._per_call_stdio_client(
             upstream_name,
-            session_id=session_id,
             session_context=session_context,
         )
+        try:
+            result = self._call_stdio_client_or_repair(
+                client,
+                upstream_name,
+                tool_name,
+                arguments,
+                timeout_seconds,
+            )
+        except BaseException:
+            self._stop_per_call_stdio_client(
+                call_id,
+                upstream_name,
+                client,
+                preserve_active_error=True,
+            )
+            raise
+        self._stop_per_call_stdio_client(
+            call_id,
+            upstream_name,
+            client,
+            preserve_active_error=False,
+        )
+        return result
+
+    def _call_stdio_client_or_repair(
+        self,
+        client: "StdioUpstreamClientProtocol",
+        upstream_name: str,
+        tool_name: str,
+        arguments: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        assert self.broker_config is not None
         upstream = self.broker_config.upstreams[upstream_name]
         result = client.call_tool(tool_name, arguments, timeout_seconds=timeout_seconds)
         if not result_matches_auth_repair(upstream, result):
@@ -169,12 +222,105 @@ class BrokerDaemonUpstreamMixin:
         session_id: str | None = None,
         session_context: dict[str, str] | None = None,
     ) -> list[dict[str, object]]:
-        client = self._stdio_client(
+        assert self.broker_config is not None
+        upstream = self.broker_config.upstreams[upstream_name]
+        if upstream.mode != "per_call":
+            client = self._stdio_client(
+                upstream_name,
+                session_id=session_id,
+                session_context=session_context,
+            )
+            return client.list_tools(timeout_seconds=timeout_seconds)
+        call_id, client = self._per_call_stdio_client(
             upstream_name,
-            session_id=session_id,
             session_context=session_context,
         )
-        return client.list_tools(timeout_seconds=timeout_seconds)
+        try:
+            result = client.list_tools(timeout_seconds=timeout_seconds)
+        except BaseException:
+            self._stop_per_call_stdio_client(
+                call_id,
+                upstream_name,
+                client,
+                preserve_active_error=True,
+            )
+            raise
+        self._stop_per_call_stdio_client(
+            call_id,
+            upstream_name,
+            client,
+            preserve_active_error=False,
+        )
+        return result
+
+    def _per_call_stdio_client(
+        self,
+        upstream_name: str,
+        *,
+        session_context: dict[str, str] | None,
+    ) -> tuple[str, "StdioUpstreamClientProtocol"]:
+        assert self.broker_config is not None
+        upstream = self.broker_config.upstreams[upstream_name]
+        if upstream.session_env:
+            upstream.resolve_session_environment(session_context or {})
+        call_id = uuid.uuid4().hex
+        with self._stdio_upstreams_lock:
+            if self._upstreams_shutdown:
+                raise StdioUpstreamError("broker upstreams are shutting down")
+            client = self._create_stdio_upstream_process(
+                upstream,
+                runtime_state_dir=self.broker_config.runtime.state_dir,
+                session_context=session_context,
+                event_logger=self._write_upstream_event,
+                runtime_paths=self._paths,
+                process_metadata_name=f"{upstream.name}.call.{call_id}",
+            )
+            self._active_per_call_upstreams[call_id] = (upstream_name, client)
+        return call_id, client
+
+    def _stop_per_call_stdio_client(
+        self,
+        call_id: str,
+        upstream_name: str,
+        client: "StdioUpstreamClientProtocol",
+        *,
+        preserve_active_error: bool,
+    ) -> None:
+        if type(preserve_active_error) is not bool:
+            raise TypeError("preserve_active_error must be a bool")
+        try:
+            with self._stdio_upstreams_lock:
+                registered = self._active_per_call_upstreams.get(call_id)
+                if registered != (upstream_name, client):
+                    return
+                remaining_processes = client.stop()
+                self._active_per_call_upstreams.pop(call_id)
+        except Exception as exc:
+            cleanup_error = StdioUpstreamError(
+                f"upstream cleanup failed: {upstream_name}: {exc}"
+            )
+            try:
+                self._write_upstream_event(
+                    "upstream.stop_error",
+                    upstream_name,
+                    {"error": str(exc)},
+                )
+            except Exception:
+                if not preserve_active_error:
+                    raise cleanup_error from exc
+                return
+            if not preserve_active_error:
+                raise cleanup_error from exc
+            return
+        if remaining_processes:
+            try:
+                self._write_upstream_event(
+                    "upstream.stop_incomplete",
+                    upstream_name,
+                    {"remaining_broker_processes": sorted(set(remaining_processes))},
+                )
+            except Exception:
+                return
 
     def _stdio_client(
         self,
@@ -193,6 +339,8 @@ class BrokerDaemonUpstreamMixin:
         # evicting a key mid-creation. Construction does not spawn the subprocess
         # (that happens lazily on first call), so the lock is held only briefly.
         with self._stdio_upstreams_lock:
+            if self._upstreams_shutdown:
+                raise StdioUpstreamError("broker upstreams are shutting down")
             client = self._stdio_upstreams.get(client_key)
             if client is None:
                 client = self._create_stdio_upstream_process(

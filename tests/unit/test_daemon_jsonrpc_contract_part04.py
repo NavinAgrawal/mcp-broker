@@ -17,9 +17,10 @@ class RaisingClient:
     ) -> dict[str, object]:
         raise self.exception
 class CreatedClient:
-    def __init__(self, client_id: int) -> None:
+    def __init__(self, client_id: int, stop_result: list[int] | None = None) -> None:
         self.client_id = client_id
         self.call_calls: list[tuple[str, dict[str, object], int]] = []
+        self.stop_result = [] if stop_result is None else stop_result
 
     def call_tool(
         self,
@@ -42,7 +43,7 @@ class CreatedClient:
         }
 
     def stop(self) -> list[int]:
-        return []
+        return self.stop_result
 class RecoverableExitedClient:
     def __init__(self, restart_error: Exception | None = None) -> None:
         self.restart_error = restart_error
@@ -675,3 +676,87 @@ def test_daemon_shutdown_names_per_session_stdio_clients(tmp_path: Path) -> None
         "stopped_upstreams": ["browser-session:llm-session-a"],
         "remaining_broker_processes": [],
     }
+
+
+def test_daemon_shutdown_stops_active_per_call_clients(tmp_path: Path) -> None:
+    from mcp_broker.config import BrokerConfig, BrokerSettings, RuntimeConfig, UpstreamConfig
+    from mcp_broker.daemon import BrokerDaemon
+
+    config = BrokerConfig(
+        runtime=RuntimeConfig(
+            root=tmp_path / "runtime",
+            socket_path=tmp_path / "broker.sock",
+            log_dir=tmp_path / "runtime" / "logs",
+            state_dir=tmp_path / "runtime" / "state",
+            secrets_dir=tmp_path / "runtime" / "secrets",
+        ),
+        broker=BrokerSettings(),
+        upstreams={
+            "task": UpstreamConfig(
+                name="task",
+                command="task",
+                mode="per_call",
+                tool_prefix="task",
+            )
+        },
+    )
+    daemon = BrokerDaemon(
+        runtime_root=config.runtime.root,
+        socket_path=config.runtime.socket_path,
+        broker_config=config,
+    )
+    daemon._active_per_call_upstreams["call-id"] = (
+        "task",
+        CreatedClient(1, [777]),
+    )
+
+    assert daemon._shutdown_upstreams() == {
+        "stopped_upstreams": ["task:call:call-id"],
+        "remaining_broker_processes": [777],
+    }
+    assert daemon._active_per_call_upstreams == {}
+    assert daemon._upstreams_shutdown is True
+
+
+def test_daemon_initializes_per_call_lifecycle_state(tmp_path: Path) -> None:
+    from mcp_broker.daemon import BrokerDaemon
+
+    daemon = BrokerDaemon(
+        runtime_root=tmp_path / "runtime",
+        socket_path=tmp_path / "broker.sock",
+    )
+
+    assert daemon._active_per_call_upstreams == {}
+    assert daemon._upstreams_shutdown is False
+
+
+def test_daemon_stdio_factory_forwards_per_call_process_dependencies(tmp_path: Path) -> None:
+    from mcp_broker.config import UpstreamConfig
+    from mcp_broker.daemon import BrokerDaemon
+    from mcp_broker.runtime_reaper import RuntimePaths
+    from mcp_broker.upstream_stdio import StdioUpstreamProcess
+
+    daemon = BrokerDaemon(
+        runtime_root=tmp_path / "runtime",
+        socket_path=tmp_path / "broker.sock",
+    )
+    upstream = UpstreamConfig(name="task", command="task", mode="per_call")
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    session_context = {"client_cwd": "/tmp/project"}
+
+    process = daemon._create_stdio_upstream_process(
+        upstream,
+        runtime_state_dir=tmp_path / "state",
+        session_context=session_context,
+        event_logger=daemon._write_upstream_event,
+        runtime_paths=runtime_paths,
+        process_metadata_name="task.call.123",
+    )
+
+    assert isinstance(process, StdioUpstreamProcess)
+    assert process.upstream is upstream
+    assert process.runtime_state_dir == tmp_path / "state"
+    assert process.session_context is session_context
+    assert process._event_logger == daemon._write_upstream_event
+    assert process._runtime_paths is runtime_paths
+    assert process._process_metadata_name == "task.call.123"

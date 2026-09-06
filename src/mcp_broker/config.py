@@ -11,6 +11,7 @@ from typing import Any, TypedDict
 import yaml
 
 from mcp_broker.client_config import ClientRenderConfig
+from mcp_broker import config_modes
 from mcp_broker.config_keys import (
     BROKER_KEYS,
     ENV_NAME_PATTERN,
@@ -260,18 +261,21 @@ class UpstreamConfig:
             raise ValueError(f"missing required config key: upstreams.{name}.command")
         env, env_files = _parse_upstream_environment(name, data, runtime=runtime)
         mode = parse_mode(f"upstreams.{name}.mode", data.get("mode", "shared"))
+        transport = parse_transport(
+            f"upstreams.{name}.transport", data.get("transport", "stdio")
+        )
+        config_modes.validate_upstream_transport_mode(name, mode, transport)
         session_env = _parse_session_env(
             f"upstreams.{name}.session_env",
             data.get("session_env", {}),
         )
-        if session_env and mode != "per_session":
-            raise ValueError(f"upstreams.{name}.session_env requires mode: per_session")
+        config_modes.validate_upstream_session_mode(name, mode, session_env)
         return cls(
             name=name,
             command=_expand_config_text(str(data["command"]), runtime),
             args=_parse_upstream_args(name, data, runtime),
             mode=mode,
-            transport=parse_transport(f"upstreams.{name}.transport", data.get("transport", "stdio")),
+            transport=transport,
             enabled=bool(data.get("enabled", True)),
             working_dir=_parse_upstream_working_dir(name, data, runtime),
             state_dir=data.get("state_dir"),
