@@ -42,6 +42,8 @@ Responsibilities:
 - Kill runaway processes.
 - Keep one shared process for `shared` upstreams.
 - Start isolated processes for `per_session` upstreams.
+- Start a fresh process for each `per_call` operation and stop it when that
+  operation ends.
 
 The current implementation covers process supervision for local stdio
 upstreams: create the configured state directory, start a local subprocess,
@@ -80,9 +82,14 @@ doctor, shared pooling, per-session pooling, and broker-owned orphan reaping.
 |---|---|
 | `shared` | One process is reused across clients. |
 | `per_session` | One process per client session. |
+| `per_call` | One fresh process per tool call or tool-list operation. |
 | `disabled` | Defined but not started or advertised. |
 
-Default to `shared` for read-heavy local tools. Use shared plus `serialize_calls: true` for broker-smoked auth or write paths that can keep broker-owned state. Use `per_session` for browser and project-root-bound tools until tests prove safe sharing.
+Default to `shared` for read-heavy local tools. Use shared plus
+`serialize_calls: true` for broker-smoked auth or write paths that can keep
+broker-owned state. Use `per_session` for browser and project-root-bound tools
+until tests prove safe sharing. Use `per_call` when each operation requires a
+fresh process and the broker must release it as soon as that operation ends.
 
 Upstreams can set `serialize_calls: true` to force one in-flight `tools/call`
 per upstream name. The daemon owns the lock registry, so serialization survives

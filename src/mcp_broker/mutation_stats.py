@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import sys
 from collections import Counter
@@ -101,10 +102,17 @@ def filter_mutant_results(
 ) -> tuple[list[tuple[str, str, str]], list[str]]:
     if include_mutants is None:
         return results, []
-    selected = set(include_mutants)
-    filtered = [result for result in results if result[1] in selected]
-    found = {mutant_name for _source_path, mutant_name, _status in filtered}
-    missing = sorted(selected - found)
+    filtered = [
+        result
+        for result in results
+        if any(fnmatch.fnmatchcase(result[1], pattern) for pattern in include_mutants)
+    ]
+    matched_patterns = {
+        pattern
+        for pattern in include_mutants
+        if any(fnmatch.fnmatchcase(result[1], pattern) for result in results)
+    }
+    missing = sorted(set(include_mutants) - matched_patterns)
     return filtered, missing
 
 

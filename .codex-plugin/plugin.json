@@ -1,6 +1,6 @@
 {
   "name": "mcp-broker",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Local MCP broker for sharing upstream MCP servers across MCP clients.",
   "author": {
     "name": "mcp-broker maintainers"

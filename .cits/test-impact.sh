@@ -97,10 +97,10 @@ if [ "$tier" = "ci" ]; then
   printf '  $ make %s\n' "${command[*]:1}"
 else
   if [ "$standard_count" -gt 0 ]; then
-    printf '  $ make test PYTEST_ARGS=%s\n' "$standard_pytest_args"
+    printf '  $ make test PYTEST_ARGS=<%s selected files>\n' "$standard_count"
   fi
   if [ "$live_count" -gt 0 ]; then
-    printf '  $ make test-live-targeted PYTEST_ARGS=%s\n' "$live_pytest_args"
+    printf '  $ make test-live-targeted PYTEST_ARGS=<%s selected files>\n' "$live_count"
   fi
 fi
 

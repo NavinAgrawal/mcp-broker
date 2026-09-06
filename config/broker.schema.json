@@ -251,10 +251,27 @@
           "then": {
             "properties": {
               "mode": {
-                "const": "per_session"
+                "enum": ["per_session", "per_call"]
               }
             },
             "required": ["mode"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "per_call"
+              }
+            },
+            "required": ["mode"]
+          },
+          "then": {
+            "properties": {
+              "transport": {
+                "const": "stdio"
+              }
+            }
           }
         }
       ],
@@ -263,7 +280,7 @@
           "type": "boolean"
         },
         "mode": {
-          "enum": ["shared", "per_session", "disabled"]
+          "enum": ["shared", "per_session", "per_call", "disabled"]
         },
         "transport": {
           "enum": ["stdio", "http", "sse"]

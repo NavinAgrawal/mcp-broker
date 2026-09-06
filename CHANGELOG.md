@@ -2,6 +2,10 @@
 
 All notable public changes will be recorded here.
 
+## 2.1.1 - 2026-09-06
+
+- Synchronize release metadata through the Makefile release path.
+
 ## 2.1.0 - 2026-09-05
 
 - Add caller-bound broker session closure so clients can release idle upstream

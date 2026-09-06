@@ -111,6 +111,55 @@ upstreams:
     assert "schema validation failed" in str(raised.value)
     assert "upstreams.session-tool.mode" in str(raised.value)
     assert "per_session" in str(raised.value)
+    assert "per_call" in str(raised.value)
+
+
+def test_config_validate_accepts_session_env_with_per_call_mode(tmp_path: Path) -> None:
+    from mcp_broker.config_validate import validate_config_file
+
+    config_file = tmp_path / "broker.yaml"
+    config_file.write_text(
+        """
+schema_version: 1
+runtime:
+  root: /tmp/mcp-broker-test
+upstreams:
+  task-runner:
+    command: task-runner
+    mode: per_call
+    session_env:
+      PROJECT_DIR: client_cwd
+""".strip(),
+        encoding="utf-8",
+    )
+
+    validate_config_file(config_file, SCHEMA_FILE)
+
+
+def test_config_validate_rejects_per_call_http_transport(tmp_path: Path) -> None:
+    from mcp_broker.config_validate import ConfigValidationError, validate_config_file
+
+    config_file = tmp_path / "broker.yaml"
+    config_file.write_text(
+        """
+schema_version: 1
+runtime:
+  root: /tmp/mcp-broker-test
+upstreams:
+  remote-task:
+    command: https://example.invalid/mcp
+    mode: per_call
+    transport: http
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigValidationError) as raised:
+        validate_config_file(config_file, SCHEMA_FILE)
+
+    assert "schema validation failed" in str(raised.value)
+    assert "upstreams.remote-task.transport" in str(raised.value)
+    assert "stdio" in str(raised.value)
 
 
 def test_config_validate_reports_runtime_loader_errors(tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ define log_success
 endef
 
 define log_error
-	@printf "\033[1;31m[ERROR]\033[0m %s\n" "$(call strip_quotes,$(1))" >&2
+	printf "\033[1;31m[ERROR]\033[0m %s\n" "$(call strip_quotes,$(1))" >&2
 endef
 
 define log_step

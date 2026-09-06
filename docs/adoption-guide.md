@@ -147,6 +147,10 @@ Use `shared` plus `serialize_calls: true` for shared SaaS, notes, or write-capab
 
 Use `per_session` for browser automation, filesystem roots, databases, cloud deploy tools, and project-specific state.
 
+Use `per_call` for a stdio adapter that must start fresh for one operation. The
+broker creates the process for a tool call or tool-list request and stops it after
+the operation. HTTP and SSE upstreams cannot use this mode.
+
 ## Validate From The Client
 
 Codex and Claude `/mcp` views show the broker entry, not every hidden upstream. That is expected.

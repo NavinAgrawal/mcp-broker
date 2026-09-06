@@ -40,10 +40,11 @@ def test_schema_parse_mode_defaults_and_rejects_empty_with_allowed_values() -> N
 
     assert parse_mode("upstreams.docs.mode", None) == "shared"
     assert parse_mode("upstreams.docs.mode", "per_session") == "per_session"
+    assert parse_mode("upstreams.docs.mode", "per_call") == "per_call"
 
     with pytest.raises(
         ValueError,
-        match="upstreams.docs.mode must be one of: disabled, per_session, shared",
+        match="upstreams.docs.mode must be one of: disabled, per_call, per_session, shared",
     ):
         parse_mode("upstreams.docs.mode", "")
 

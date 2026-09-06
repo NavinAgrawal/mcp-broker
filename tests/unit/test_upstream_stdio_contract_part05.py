@@ -700,6 +700,9 @@ def test_stdio_upstream_stop_uses_process_group_and_cleanup_contract(
     drainer = RecordingDrainer()
     client._process = cast(Any, process)
     client._stderr_drainer = drainer
+    metadata_path = tmp_path / "fake.json"
+    metadata_path.write_text("metadata", encoding="utf-8")
+    client._process_metadata_path = metadata_path
 
     monkeypatch.setattr(upstream_stdio, "_process_group_id", lambda pid: 1234)
     monkeypatch.setattr(upstream_stdio, "_signal_process_group", lambda _pid, _sig: None)
@@ -724,6 +727,8 @@ def test_stdio_upstream_stop_uses_process_group_and_cleanup_contract(
     assert close_calls == [False, True]
     assert drainer.join_timeouts == [KILL_WAIT_SECONDS]
     assert client._stderr_drainer is None
+    assert metadata_path.exists()
+    assert client._process_metadata_path == metadata_path
     assert events == [
         {
             "event": "upstream.kill",

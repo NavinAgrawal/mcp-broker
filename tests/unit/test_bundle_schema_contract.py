@@ -52,6 +52,20 @@ def test_bundle_schema_rejects_remote_code_execution_policy() -> None:
         Draft202012Validator(load_bundle_schema()).validate(bundle)
 
 
+def test_bundle_schema_limits_per_call_mode_to_stdio() -> None:
+    from mcp_broker.bundle_schema import load_bundle_schema
+
+    validator = Draft202012Validator(load_bundle_schema())
+    bundle = minimal_bundle()
+    upstream = bundle["upstreams"]["catalog-cache"]
+    upstream["mode"] = "per_call"
+    validator.validate(bundle)
+
+    upstream["transport"] = "http"
+    with pytest.raises(ValidationError, match="'stdio' was expected"):
+        validator.validate(bundle)
+
+
 def test_bundle_schema_metadata_exposes_non_executable_contract() -> None:
     from mcp_broker.bundle_schema import bundle_schema_metadata
 

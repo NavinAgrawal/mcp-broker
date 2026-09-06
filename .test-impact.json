@@ -46,6 +46,14 @@
       "runTests": ["tests/unit/test_config_*contract*.py", "tests/unit/test_config_inventory_contract.py"]
     },
     {
+      "changed": "src/mcp_broker/config_modes.py",
+      "runTests": ["tests/unit/test_config_contract_part02.py", "tests/unit/test_config_validate_contract.py", "tests/unit/test_schema_contract.py"]
+    },
+    {
+      "changed": "src/mcp_broker/daemon_errors.py",
+      "runTests": ["tests/unit/test_daemon_jsonrpc_contract_part04.py", "tests/unit/test_daemon_upstreams_contract.py"]
+    },
+    {
       "changed": "src/mcp_broker/daemon_tool_calls.py",
       "runTests": ["tests/unit/test_daemon_jsonrpc_contract_part*.py", "tests/unit/test_daemon_tool_call_mutation_contract.py"]
     },

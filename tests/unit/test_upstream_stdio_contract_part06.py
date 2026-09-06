@@ -118,6 +118,121 @@ class RecordingDrainer:
 
     def join(self, *, timeout: float) -> None:
         self.join_timeouts.append(timeout)
+
+
+def test_stdio_upstream_initial_state_is_explicit(tmp_path: Path) -> None:
+    client = StdioUpstreamProcess(
+        UpstreamConfig(name="fake", command=sys.executable),
+        runtime_state_dir=tmp_path / "state",
+    )
+
+    assert isinstance(client._last_activity_monotonic, float)
+    assert client._last_error is None
+    assert client._initialized is False
+
+
+def test_stdio_upstream_metadata_writer_requires_process_and_runtime_paths(
+    tmp_path: Path,
+) -> None:
+    without_paths = StdioUpstreamProcess(
+        UpstreamConfig(name="fake", command=sys.executable),
+        runtime_state_dir=tmp_path / "state",
+    )
+    without_paths._process = cast(Any, RunningProcessForHealth())
+    without_paths._write_process_metadata()
+
+    from mcp_broker.runtime_reaper import RuntimePaths
+
+    without_process = StdioUpstreamProcess(
+        UpstreamConfig(name="fake", command=sys.executable),
+        runtime_state_dir=tmp_path / "state",
+        runtime_paths=RuntimePaths.from_root(tmp_path / "runtime"),
+    )
+    without_process._write_process_metadata()
+
+    assert without_paths._process_metadata_path is None
+    assert without_process._process_metadata_path is None
+
+
+@pytest.mark.error_simulation
+def test_stdio_upstream_stop_records_first_sigkill_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mcp_broker import upstream_stdio
+
+    class ExitsAfterGroupCheck:
+        pid = 999_996
+        stdin = io.BytesIO()
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+
+        def __init__(self) -> None:
+            self.exited = False
+
+        def poll(self) -> int | None:
+            return 0 if self.exited else None
+
+        def wait(self, *, timeout: float) -> int:
+            raise subprocess.TimeoutExpired("fake", timeout)
+
+    process = ExitsAfterGroupCheck()
+    client = StdioUpstreamProcess(
+        UpstreamConfig(name="fake", command=sys.executable),
+        runtime_state_dir=tmp_path / "state",
+    )
+    client._process = cast(Any, process)
+    monkeypatch.setattr(upstream_stdio, "_signal_process_group", lambda *_args: None)
+    monkeypatch.setattr(
+        upstream_stdio,
+        "_wait_for_process_group_stop",
+        lambda _pgid: setattr(process, "exited", True) or (),
+    )
+
+    client.stop()
+
+    assert client._last_error == "upstream did not exit after SIGKILL: fake"
+
+
+@pytest.mark.error_simulation
+def test_stdio_upstream_stop_records_final_sigkill_timeout_before_direct_kill(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mcp_broker import upstream_stdio
+
+    class ExitsAfterDirectKill:
+        pid = 999_995
+        stdin = io.BytesIO()
+        stdout = io.BytesIO()
+        stderr = io.BytesIO()
+
+        def __init__(self) -> None:
+            self.killed = False
+
+        def poll(self) -> int | None:
+            return 0 if self.killed else None
+
+        def wait(self, *, timeout: float) -> int:
+            if not self.killed:
+                raise subprocess.TimeoutExpired("fake", timeout)
+            return 0
+
+        def kill(self) -> None:
+            self.killed = True
+
+    process = ExitsAfterDirectKill()
+    client = StdioUpstreamProcess(
+        UpstreamConfig(name="fake", command=sys.executable),
+        runtime_state_dir=tmp_path / "state",
+    )
+    client._process = cast(Any, process)
+    monkeypatch.setattr(upstream_stdio, "_signal_process_group", lambda *_args: None)
+    monkeypatch.setattr(upstream_stdio, "_wait_for_process_group_stop", lambda _pgid: ())
+
+    client.stop()
+
+    assert client._last_error == "upstream did not exit after final SIGKILL: fake"
 def _script(tmp_path: Path, name: str, body: str) -> Path:
     path = tmp_path / name
     path.write_text(body.strip() + "\n", encoding="utf-8")

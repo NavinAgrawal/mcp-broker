@@ -7,8 +7,17 @@ _mutation-impl:
 	$(call log_step,"Mutation tests")
 	@mkdir -p "$(QUALITY_DIR)"
 	@rm -rf "$(ROOT)/.mutmut-cache" "$(ROOT)/mutants" "$(MUTATION_STATS_JSON)"
-	@$(MUTATION_QOS_PREFIX) $(MUTMUT) run --max-children $(MUTATION_MAX_CHILDREN) $(MUTATION_ARGS)
-	@$(MUTMUT) results
+	@if [[ -n "$(MUTATION_ARGS)" ]]; then \
+		printf "mutation selectors: $(words $(MUTATION_ARGS)); progress log: %s\n" "$(MUTATION_RUN_LOG)"; \
+		set +e; \
+		$(MUTATION_QOS_PREFIX) $(MUTMUT) run --max-children $(MUTATION_MAX_CHILDREN) $(MUTATION_ARGS) > "$(MUTATION_RUN_LOG)" 2>&1; \
+		status=$$?; \
+		set -e; \
+		if [[ $$status -ne 0 ]]; then tail -n 80 "$(MUTATION_RUN_LOG)"; exit $$status; fi; \
+	else \
+		$(MUTATION_QOS_PREFIX) $(MUTMUT) run --max-children $(MUTATION_MAX_CHILDREN); \
+	fi
+	@if [[ -z "$(MUTATION_ARGS)" ]]; then $(MUTMUT) results; fi
 	@$(PYTHON) "$(ROOT)/scripts/check_mutation_stats.py" \
 		--mutants-dir "$(ROOT)/mutants" \
 		--output-json "$(MUTATION_STATS_JSON)" \
@@ -23,6 +32,7 @@ mutation-linux: ## Run mutation tests inside a Linux container
 mutate-file: ## Run one source-and-affected-tests mutation slice
 	@test -n "$(MUTATE_FILE)" || { $(call log_error,"MUTATE_FILE is required"); exit 2; }
 	@test -n "$(MUTATION_TESTS_TO_RUN)" || { $(call log_error,"MUTATION_TESTS_TO_RUN is required"); exit 2; }
+	@test -n "$(MUTATION_ARGS)" || { $(call log_error,"MUTATION_ARGS is required for exact changed-callable scope"); exit 2; }
 	$(call timed_make,"mutate-file: $(MUTATE_FILE)",MUTATION_PATHS_TO_MUTATE="$(MUTATE_FILE)" MUTATION_TESTS_TO_RUN="$(MUTATION_TESTS_TO_RUN)" mutation-linux)
 
 _mutation-linux-impl:

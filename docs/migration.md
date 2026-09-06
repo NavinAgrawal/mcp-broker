@@ -157,6 +157,8 @@ which clients should see the tools.
 
 Use `mode: shared` for read-only or shared-auth upstreams. Use
 `mode: per_session` when the upstream keeps unsafe process-local state.
+Use `mode: per_call` when a stdio adapter must start fresh for one operation and
+exit afterward. `per_call` cannot use HTTP or SSE.
 
 ## Windsurf
 

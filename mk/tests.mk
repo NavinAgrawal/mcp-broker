@@ -4,18 +4,30 @@ test: ## Run all test tiers in parallel
 	$(call timed_make,"test: total",_test-impl PYTEST_WORKERS="$(PYTEST_WORKERS)")
 
 _test-impl:
-	$(call log_step,"All test tiers")
 ifneq ($(strip $(PYTEST_ARGS)),)
+	$(call log_step,"Targeted test selection")
 	$(call timed_make,"test: targeted tests",_test-targeted)
+	$(call log_success,"Targeted test selection passed")
 else
+	$(call log_step,"All test tiers")
 	$(call timed_make,"test: all tiers",$(call parallel_make_args,$(TEST_JOBS)) _test-unit-fanout _test-journey-fanout _test-live-fanout _test-e2e-fanout)
-endif
 	$(call log_success,"All test tiers passed")
+endif
 
 _test-targeted:
 	$(call log_step,"Targeted tests")
 	@mkdir -p $(COV_DIR) $(TEST_LOG_DIR)
-	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m pytest $(PYTEST_TARGETED_COMMON) $(PYTEST_ARGS)
+	@set +e; \
+	PYTHONPATH="$(PYTHONPATH)" $(PYTHON) -m pytest $(PYTEST_TARGETED_COMMON) $(PYTEST_ARGS) > "$(PYTEST_TARGETED_LOG)" 2>&1; \
+	status=$$?; \
+	set -e; \
+	if [[ $$status -eq 0 ]]; then \
+		summary="$$(tr '\r' '\n' < "$(PYTEST_TARGETED_LOG)" | awk '/^Results / {show=1} show')"; \
+		if [[ -n "$$summary" ]]; then printf '%s\n' "$$summary"; else tail -n 6 "$(PYTEST_TARGETED_LOG)"; fi; \
+	else \
+		cat "$(PYTEST_TARGETED_LOG)" >&2; \
+		exit $$status; \
+	fi
 	$(call log_success,"Targeted tests passed")
 
 _test-unit-fanout:
@@ -50,8 +62,19 @@ test-live: ## Run live tests
 test-live-targeted: ## Run selected live tests with the live timeout budget
 	@test -n "$(PYTEST_ARGS)" || { $(call log_error,"PYTEST_ARGS is required"); exit 2; }
 	$(call log_step,"Targeted live tests")
-	@MCP_BROKER_LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)" PYTHONPATH="$(PYTHONPATH)" \
-		$(PYTHON) -m pytest $(PYTEST_LIVE_COMMON) $(PYTEST_ARGS)
+	@mkdir -p $(TEST_LOG_DIR)
+	@set +e; \
+	MCP_BROKER_LIVE_CONFIG_PATH="$(LIVE_CONFIG_PATH)" PYTHONPATH="$(PYTHONPATH)" \
+		$(PYTHON) -m pytest $(PYTEST_LIVE_COMMON) $(PYTEST_ARGS) > "$(PYTEST_LIVE_TARGETED_LOG)" 2>&1; \
+	status=$$?; \
+	set -e; \
+	if [[ $$status -eq 0 ]]; then \
+		summary="$$(tr '\r' '\n' < "$(PYTEST_LIVE_TARGETED_LOG)" | awk '/^Results / {show=1} show')"; \
+		if [[ -n "$$summary" ]]; then printf '%s\n' "$$summary"; else tail -n 6 "$(PYTEST_LIVE_TARGETED_LOG)"; fi; \
+	else \
+		cat "$(PYTEST_LIVE_TARGETED_LOG)" >&2; \
+		exit $$status; \
+	fi
 	$(call log_success,"Targeted live tests passed")
 
 test-e2e: ## Run e2e tests

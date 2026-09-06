@@ -13,8 +13,19 @@ def test_linux_mutation_script_streams_container_output_to_host_log() -> None:
     assert 'LOG_PATH="${MCP_BROKER_MUTATION_LOG:-$ROOT/var/quality/mutation-linux.log}"' in script
     assert 'mkdir -p "$(dirname "$LOG_PATH")"' in script
     assert 'rm -f "$LOG_PATH"' in script
-    assert '2>&1 | tee "$LOG_PATH"' in script
+    assert '2>&1 | if [[ -n "$MUTATION_ARGS_VALUE" ]]; then' in script
+    assert 'else\n    tee "$LOG_PATH"' in script
     assert 'printf "linux_mutation=true image=%s stats=%s log=%s\\n"' in script
+
+
+def test_linux_mutation_script_suppresses_exact_slice_chatter() -> None:
+    script = (ROOT / "scripts" / "linux-mutation.sh").read_text(encoding="utf-8")
+
+    assert 'if [[ -n "$MUTATION_ARGS_VALUE" ]]; then' in script
+    assert 'tee "$LOG_PATH" >/dev/null' in script
+    assert 'pipeline_status=("${PIPESTATUS[@]}")' in script
+    assert 'container_status=${pipeline_status[0]}' in script
+    assert 'tail -n 80 "$LOG_PATH" >&2' in script
 
 
 def test_linux_mutation_script_uses_mac_safe_default_and_background_qos() -> None:
@@ -114,7 +125,7 @@ def test_mutation_carveout_registry_records_daemon_class_method_limit() -> None:
     assert "`BrokerDaemon._read_request`" in registry
     assert "`BrokerDaemon._send_response`" in registry
     assert "`BrokerDaemon._reap_idle_upstreams`" in registry
-    assert "65f64e19e44e818e356f77d12155af1615d89dc934d2027ab76593d1a7de40f6" in registry
+    assert "538f7b8d2e8cb81fcb88b1ce4843be1ba485498c9d5942dbf41d632e02a1e308" in registry
     assert "source or mutmut version drift invalidates this approval" in registry
 
 
