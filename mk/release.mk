@@ -4,6 +4,10 @@ mutation: $(VENV_DIR)/.deps.stamp ## Run mutation tests with mutmut
 	$(call timed_make,"mutation: total",_mutation-impl)
 
 _mutation-impl:
+	@if [[ -n "$(strip $(MUTATION_PATHS_TO_MUTATE))" || -n "$(strip $(MUTATION_TESTS_TO_RUN))" ]]; then \
+		$(call log_error,"native mutation cannot honor scoped paths and tests; use mutation-linux"); \
+		exit 2; \
+	fi
 	$(call log_step,"Mutation tests")
 	@mkdir -p "$(QUALITY_DIR)"
 	@rm -rf "$(ROOT)/.mutmut-cache" "$(ROOT)/mutants" "$(MUTATION_STATS_JSON)"
@@ -38,15 +42,28 @@ mutate-file: ## Run one source-and-affected-tests mutation slice
 _mutation-linux-impl:
 	@paths="$(MUTATION_PATHS_TO_MUTATE)"; \
 	if [[ -z "$$paths" ]]; then \
-		paths="$$(PYTHONPATH="$(PYTHONPATH)" "$(PYTHON)" "$(ROOT)/scripts/changed_mutation_paths.py" --root "$(ROOT)" --diff-base "$(MUTATION_DIFF_BASE)" --format make)"; \
+		paths="$$(PYTHONPATH="$(PYTHONPATH)" "$(PYTHON)" "$(MUTATION_PATH_SELECTOR)" --root "$(ROOT)" --diff-base "$(MUTATION_DIFF_BASE)" --format make)"; \
+	fi; \
+	if [[ -z "$$paths" ]]; then \
+		$(call log_error,"mutation-linux selected zero changed source files; refusing unscoped mutation"); \
+		exit 2; \
+	fi; \
+	tests="$(MUTATION_TESTS_TO_RUN)"; \
+	if [[ -z "$$tests" ]]; then \
+		tests="$$(PYTHONPATH="$(PYTHONPATH)" "$(PYTHON)" "$(MUTATION_TEST_SELECTOR)" --root "$(ROOT)" --tier "$(MUTATION_TEST_TIER)" --base "$(MUTATION_DIFF_BASE)" | tr '\n' ' ')"; \
+	fi; \
+	if [[ -z "$$tests" ]]; then \
+		$(call log_error,"mutation-linux selected zero affected tests; refusing unscoped mutation"); \
+		exit 2; \
 	fi; \
 	printf "mutation-linux: resolve changed paths: %s\n" "$$paths"; \
+	printf "mutation-linux: resolve affected tests: %s\n" "$$tests"; \
 	MCP_BROKER_MUTATION_IMAGE="$(MUTATION_IMAGE)" \
 		MCP_BROKER_MUTATION_MAX_CHILDREN="$(MUTATION_MAX_CHILDREN)" \
 		MCP_BROKER_MUTATION_ARGS="$(MUTATION_ARGS)" \
 		MCP_BROKER_MUTATION_DEBUG="$(MUTATION_DEBUG)" \
 		MCP_BROKER_MUTATION_PATHS_TO_MUTATE="$$paths" \
-		MCP_BROKER_MUTATION_TESTS_TO_RUN="$(MUTATION_TESTS_TO_RUN)" \
+		MCP_BROKER_MUTATION_TESTS_TO_RUN="$$tests" \
 		MCP_BROKER_MUTATION_LOG="$(MUTATION_LOG)" \
 		MCP_BROKER_MUTATION_MUTANTS_DIR="$(MUTATION_MUTANTS_DIR)" \
 		$(MUTATION_QOS_PREFIX) "$(ROOT)/scripts/linux-mutation.sh"
@@ -85,6 +102,18 @@ _release-gate-mutation:
 _release-gate-mutation-run:
 	@paths="$(MUTATION_PATHS_TO_MUTATE)"; \
 	if [[ -z "$$paths" ]]; then \
-		paths="$$(PYTHONPATH="$(PYTHONPATH)" "$(PYTHON)" "$(ROOT)/scripts/changed_mutation_paths.py" --root "$(ROOT)" --diff-base "$(MUTATION_DIFF_BASE)" --format make)"; \
+		paths="$$(PYTHONPATH="$(PYTHONPATH)" "$(PYTHON)" "$(MUTATION_PATH_SELECTOR)" --root "$(ROOT)" --diff-base "$(MUTATION_DIFF_BASE)" --format make)"; \
 	fi; \
-	$(MAKE) --no-print-directory MUTATION_PATHS_TO_MUTATE="$$paths" MUTATION_MAX_CHILDREN="$(MUTATION_RELEASE_CHILDREN)" $(RELEASE_MUTATION_TARGET)
+	if [[ -z "$$paths" ]]; then \
+		$(call log_error,"release-gate selected zero changed source files; refusing unscoped mutation"); \
+		exit 2; \
+	fi; \
+	tests="$(MUTATION_TESTS_TO_RUN)"; \
+	if [[ -z "$$tests" ]]; then \
+		tests="$$(PYTHONPATH="$(PYTHONPATH)" "$(PYTHON)" "$(MUTATION_TEST_SELECTOR)" --root "$(ROOT)" --tier "$(MUTATION_TEST_TIER)" --base "$(MUTATION_DIFF_BASE)" | tr '\n' ' ')"; \
+	fi; \
+	if [[ -z "$$tests" ]]; then \
+		$(call log_error,"release-gate selected zero affected tests; refusing unscoped mutation"); \
+		exit 2; \
+	fi; \
+	$(MAKE) --no-print-directory MUTATION_PATHS_TO_MUTATE="$$paths" MUTATION_TESTS_TO_RUN="$$tests" MUTATION_MAX_CHILDREN="$(MUTATION_RELEASE_CHILDREN)" $(RELEASE_MUTATION_TARGET)

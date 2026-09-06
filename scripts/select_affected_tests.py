@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from fnmatch import fnmatchcase
 import json
 import os
@@ -72,6 +73,76 @@ def _python_dependency_tests(root: Path, changed: str, tests: list[tuple[Path, s
     return selected
 
 
+def _module_name(root: Path, path: Path) -> str | None:
+    relative = path.relative_to(root)
+    parts = relative.with_suffix("").parts
+    if parts[:1] == ("src",):
+        parts = parts[1:]
+    if not parts or parts[0] not in {"mcp_broker", "tests"}:
+        return None
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _imported_modules(path: Path, module: str) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imported: set[str] = set()
+    package = module if path.name == "__init__.py" else module.rpartition(".")[0]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base_parts = package.split(".") if package else []
+            if node.level:
+                base_parts = base_parts[: max(0, len(base_parts) - node.level + 1)]
+            else:
+                base_parts = []
+            if node.module:
+                base_parts.extend(node.module.split("."))
+            base = ".".join(base_parts)
+            if base:
+                imported.add(base)
+                imported.update(
+                    f"{base}.{alias.name}" for alias in node.names if alias.name != "*"
+                )
+    return imported
+
+
+def _transitive_dependency_tests(root: Path, changed: str) -> set[str]:
+    changed_module = _module_name(root, root / changed)
+    if changed_module is None:
+        return set()
+    nodes: list[tuple[Path, str, set[str]]] = []
+    for scope in (root / "src", root / "tests"):
+        if not scope.is_dir():
+            continue
+        for path in sorted(scope.rglob("*.py")):
+            module = _module_name(root, path)
+            if module:
+                nodes.append((path, module, _imported_modules(path, module)))
+    affected_modules = {changed_module}
+    selected: set[str] = set()
+    pending = nodes
+    while pending:
+        next_pending: list[tuple[Path, str, set[str]]] = []
+        changed_graph = False
+        for path, module, imports in pending:
+            if imports.isdisjoint(affected_modules):
+                next_pending.append((path, module, imports))
+                continue
+            relative = path.relative_to(root).as_posix()
+            if relative.startswith("tests/") and path.name.startswith("test_"):
+                selected.add(relative)
+            else:
+                affected_modules.add(module)
+                changed_graph = True
+        if not changed_graph:
+            break
+        pending = next_pending
+    return selected
+
+
 def _declared_tests(root: Path, changed: str) -> set[str]:
     config_path = root / ".test-impact.json"
     if not config_path.is_file():
@@ -106,6 +177,7 @@ def select_affected_tests(root: Path, changed: list[str]) -> tuple[list[str], li
         ):
             mapped.add(relative)
         mapped.update(_python_dependency_tests(root, relative, tests))
+        mapped.update(_transitive_dependency_tests(root, relative))
         mapped.update(_declared_tests(root, relative))
         if not mapped:
             unmapped.append(relative)

@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -314,7 +315,6 @@ def test_make_bundle_validate_validates_local_bundle_without_runtime_writes(tmp_
 
 def test_mutation_target_uses_venv_console_script() -> None:
     makefile = read_combined_makefiles(ROOT)
-    setup_cfg = (ROOT / "setup.cfg").read_text(encoding="utf-8")
 
     mutation_section = makefile.split("mutation: $(VENV_DIR)/.deps.stamp", maxsplit=1)[1].split(
         "release-gate:",
@@ -355,18 +355,23 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert 'MCP_BROKER_MUTATION_LOG="$(MUTATION_LOG)"' in makefile
     assert 'MCP_BROKER_MUTATION_MUTANTS_DIR="$(MUTATION_MUTANTS_DIR)"' in makefile
     assert 'MCP_BROKER_MUTATION_PATHS_TO_MUTATE="$$paths"' in makefile
-    assert "RELEASE_MUTATION_TARGET ?= $(if $(filter Darwin,$(UNAME_S)),mutation-linux,mutation)" in makefile
+    assert "RELEASE_MUTATION_TARGET ?= mutation-linux" in makefile
     assert "MUTATION_DIFF_BASE ?= origin/main" in makefile
     assert "MUTATION_CHANGED_PATHS ?=" in makefile
     assert "MUTATE_FILE ?=" in makefile
     assert "MUTATION_TESTS_TO_RUN ?=" in makefile
+    assert "MUTATION_PATH_SELECTOR ?= $(ROOT)/scripts/changed_mutation_paths.py" in makefile
+    assert "MUTATION_TEST_SELECTOR ?= $(ROOT)/scripts/select_affected_tests.py" in makefile
+    assert "MUTATION_TEST_TIER ?= push" in makefile
     assert "scripts/changed_mutation_paths.py" in makefile
     assert "_release-gate-mutation-run" in makefile
     assert "mutation-linux: resolve changed paths" in makefile
+    assert "refusing unscoped mutation" in makefile
+    assert 'MUTATION_TESTS_TO_RUN="$$tests"' in makefile
     assert "paths=\"$$(PYTHONPATH=\"$(PYTHONPATH)\"" in makefile
     assert "--diff-base \"$(MUTATION_DIFF_BASE)\" --format make)" in makefile
     assert 'MUTATION_PATHS_TO_MUTATE="$$paths"' in makefile
-    assert 'MCP_BROKER_MUTATION_TESTS_TO_RUN="$(MUTATION_TESTS_TO_RUN)"' in makefile
+    assert 'MCP_BROKER_MUTATION_TESTS_TO_RUN="$$tests"' in makefile
     assert "mutate-file: ## Run one source-and-affected-tests mutation slice" in makefile
     assert 'test -n "$(MUTATE_FILE)"' in makefile
     assert 'test -n "$(MUTATION_TESTS_TO_RUN)"' in makefile
@@ -377,6 +382,11 @@ def test_mutation_target_uses_venv_console_script() -> None:
         "MUTATION_FAIL_STATUSES ?= survived no_tests skipped suspicious timeout "
         "check_was_interrupted_by_user segfault not_checked"
     ) in makefile
+
+
+def test_mutation_release_gate_contract() -> None:
+    makefile = read_combined_makefiles(ROOT)
+
     assert "RELEASE_GATE_JOBS ?= $(if $(filter Darwin,$(UNAME_S)),1,2)" in makefile
     assert "RELEASE_GATE_PARALLEL ?= $(if $(filter Darwin,$(UNAME_S)),0,1)" in makefile
     assert "release-gate: ## Run release gates with resource-bounded mutation" in makefile
@@ -384,6 +394,7 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert "doctor: deps runtime-layout broker-reap ## Verify runtime directories and report broker-owned leftovers" in makefile
     assert "broker-reap: deps runtime-layout ## Reap stale broker-owned pidfiles, sockets, and orphaned process groups" in makefile
     assert '$(call timed_make,"release-gate: parallel children",$(call parallel_make_args,$(RELEASE_GATE_JOBS)) _release-gate-quality _release-gate-package _release-gate-smoke _release-gate-mutation)' in makefile
+
     assert '$(call timed_make,"release-gate: sequential quality-gate",_release-gate-quality)' in makefile
     assert '$(call timed_make,"release-gate: sequential package-check",_release-gate-package)' in makefile
     assert '$(call timed_make,"release-gate: sequential release-smoke",_release-gate-smoke)' in makefile
@@ -394,6 +405,11 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert '"$(RELEASE_GATE_LOG_DIR)/release-smoke.log"' in makefile
     assert '"$(RELEASE_GATE_LOG_DIR)/$(RELEASE_MUTATION_TARGET).log"' in makefile
     assert 'tail -n 80 "$$log" >&2' in makefile
+
+
+def test_mutation_linux_copy_contract() -> None:
+    setup_cfg = (ROOT / "setup.cfg").read_text(encoding="utf-8")
+
     assert "paths_to_mutate=src/mcp_broker" in setup_cfg
     also_copy = setup_cfg.split("also_copy=\n", maxsplit=1)[1].split("tests_dir=", maxsplit=1)[0]
     copied_paths = {line.strip() for line in also_copy.splitlines() if line.strip()}
@@ -430,6 +446,67 @@ def test_mutation_target_uses_venv_console_script() -> None:
     assert "tests_dir=\n    tests/unit\n    tests/journey" in setup_cfg
     assert "pytest_add_cli_args=\n    --timeout=30\n    -m\n    not private_contract" in setup_cfg
     assert "mutate_only_covered_lines=true" in setup_cfg
+
+
+def test_native_mutation_rejects_scoped_inputs_it_cannot_honor() -> None:
+    completed = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "_mutation-impl",
+            "MUTATION_PATHS_TO_MUTATE=src/mcp_broker/daemon.py",
+            "MUTATION_TESTS_TO_RUN=tests/unit/test_daemon.py",
+            "MUTATION_ARGS=",
+            "MUTMUT=false",
+        ],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    assert completed.returncode == 2
+    assert "native mutation cannot honor scoped paths and tests" in completed.stdout
+
+
+@pytest.mark.parametrize("target", ["_mutation-linux-impl", "_release-gate-mutation-run"])
+def test_mutation_entrypoints_fail_closed_before_runner_on_empty_selection(
+    tmp_path: Path, target: str
+) -> None:
+    empty_selector = tmp_path / "empty_selector.py"
+    empty_selector.write_text("", encoding="utf-8")
+    base = [
+        "make",
+        "--no-print-directory",
+        target,
+        f"PYTHON={sys.executable}",
+        f"MUTATION_PATH_SELECTOR={empty_selector}",
+        f"MUTATION_TEST_SELECTOR={empty_selector}",
+        "MUTATION_DIFF_BASE=HEAD",
+    ]
+
+    no_paths = subprocess.run(
+        base,
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    assert no_paths.returncode == 2
+    assert "selected zero changed source files; refusing unscoped mutation" in no_paths.stdout
+
+    no_tests = subprocess.run(
+        [*base, "MUTATION_PATHS_TO_MUTATE=src/mcp_broker/daemon.py"],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    assert no_tests.returncode == 2
+    assert "selected zero affected tests; refusing unscoped mutation" in no_tests.stdout
 
 def test_make_test_gates_use_parallel_workers_and_fanout() -> None:
     makefile = read_combined_makefiles(ROOT)
