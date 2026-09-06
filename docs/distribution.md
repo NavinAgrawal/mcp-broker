@@ -398,7 +398,9 @@ manifest stays valid for Claude Desktop with rich descriptions only; MCPB does
 not allow tool `inputSchema` fields. `make smithery-publish` sends a
 Smithery-specific server-card payload and injects the source-backed broker
 facade schemas for `broker_search_tools`, `broker_describe_tool`,
-`broker_call_tool`, and `broker_status`. The first accepted Smithery release
+`broker_call_tool`, and `broker_status`. The target sends the configured
+`SMITHERY_USER_AGENT` so the API request never falls back to Python's default
+HTTP client signature. The first accepted Smithery release
 returned deployment `${SMITHERY_RELEASE_ID}` and MCP URL
 `${SMITHERY_MCP_URL}`; public search indexing may lag.
 

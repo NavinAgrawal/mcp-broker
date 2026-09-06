@@ -242,6 +242,9 @@ def _http_request(
     content_type: str,
     timeout: int,
 ) -> ApiResponse:
+    user_agent = os.environ.get("SMITHERY_USER_AGENT", "").strip()
+    if not user_agent:
+        raise RuntimeError("SMITHERY_USER_AGENT is required for Smithery API requests")
     request = urllib.request.Request(
         url,
         data=body,
@@ -250,6 +253,7 @@ def _http_request(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": content_type,
             "Accept": "application/json",
+            "User-Agent": user_agent,
         },
     )
     try:
