@@ -1,10 +1,11 @@
 import json
+import urllib.request
 import zipfile
 from pathlib import Path
 
 import pytest
 
-from scripts.smithery_release import build_payload_from_manifest, load_mcpb_manifest
+from scripts.smithery_release import _http_request, build_payload_from_manifest, load_mcpb_manifest
 
 
 pytestmark = pytest.mark.unit
@@ -144,3 +145,60 @@ def test_smithery_release_adapter_does_not_depend_on_transitive_requests() -> No
 
     assert "import requests" not in script
     assert "urllib.request" in script
+
+
+@pytest.mark.error_simulation
+def test_smithery_http_request_uses_configured_user_agent(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("SMITHERY_USER_AGENT", "mcp-broker-test-client")
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def urlopen(request: urllib.request.Request, *, timeout: int):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    response = _http_request(
+        method="PUT",
+        url="https://api.example.invalid/releases",
+        api_key="test-api-key",
+        body=b"{}",
+        content_type="application/json",
+        timeout=37,
+    )
+
+    request = captured["request"]
+    assert isinstance(request, urllib.request.Request)
+    assert request.get_header("User-agent") == "mcp-broker-test-client"
+    assert captured["timeout"] == 37
+    assert response.status_code == 200
+
+
+def test_smithery_http_request_requires_configured_user_agent(monkeypatch) -> None:
+    monkeypatch.delenv("SMITHERY_USER_AGENT", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match="SMITHERY_USER_AGENT is required for Smithery API requests",
+    ):
+        _http_request(
+            method="PUT",
+            url="https://api.example.invalid/releases",
+            api_key="test-api-key",
+            body=b"{}",
+            content_type="application/json",
+            timeout=37,
+        )

@@ -241,7 +241,8 @@ smithery-payload-check: mcpb-pack ## Build and validate Smithery release payload
 
 smithery-publish: smithery-payload-check ## Publish the MCPB bundle to Smithery using the repo payload adapter
 	$(call log_step,"Publishing Smithery MCPB bundle")
-	@PYTHONPATH="$(PYTHONPATH)" $(PYTHON) "$(ROOT)/scripts/smithery_release.py" "$(MCPB_OUTPUT)" \
+	@SMITHERY_USER_AGENT="$(SMITHERY_USER_AGENT)" \
+		PYTHONPATH="$(PYTHONPATH)" $(PYTHON) "$(ROOT)/scripts/smithery_release.py" "$(MCPB_OUTPUT)" \
 		--name "$(SMITHERY_QUALIFIED_NAME)" \
 		--base-url "$(SMITHERY_API_BASE_URL)"
 	$(call log_success,"Smithery publish target completed: $(SMITHERY_QUALIFIED_NAME)")
