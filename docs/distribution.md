@@ -144,7 +144,8 @@ arguments.
 `DOCKERHUB_USERNAME`
 and `DOCKERHUB_TOKEN` are also used by `make docker-hub-public-ensure` so the
 Docker Hub repository is public before the image push and before PyPI can be
-written.
+written. That preflight requests `pull,push` scope for the configured image and
+blocks before any registry write when Docker Hub grants pull-only access.
 
 The orchestrator is retry-aware for partially completed releases. It checks the
 PyPI artifact digests, NPM package integrity, MCP Registry name/version

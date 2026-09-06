@@ -495,7 +495,13 @@ def test_docker_hub_token_stays_out_of_process_arguments() -> None:
 
     assert '--token "$${DOCKERHUB_TOKEN}"' not in target
     assert 'parser.add_argument("--token"' not in script
-    assert "dockerhub_token_from_env(os.environ)" in script
+    assert "dockerhub_token_from_env(os.environ if environ is None else environ)" in script
+    assert '--registry-auth-url "$(DOCKER_REGISTRY_AUTH_URL)"' in target
+    assert '--registry-service "$(DOCKER_REGISTRY_SERVICE)"' in target
+    main_section = script.split("def main(", maxsplit=1)[1]
+    assert main_section.index("verify_docker_registry_push_access(") < main_section.index(
+        "ensure_docker_hub_public("
+    )
     assert "publish-everywhere must run in GitHub Actions" not in makefile
     assert "release must run in GitHub Actions" not in makefile
     assert 'case "$(PUBLISH_EXECUTION_MODE)" in' in makefile

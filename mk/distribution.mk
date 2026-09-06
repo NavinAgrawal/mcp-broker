@@ -176,6 +176,8 @@ docker-hub-public-ensure: ## Ensure Docker Hub repository exists with public vis
 		--namespace "$(DOCKER_NAMESPACE)" \
 		--repository "$(DOCKER_IMAGE_NAME)" \
 		--registry "$(DOCKER_REGISTRY_HOST)" \
+		--registry-auth-url "$(DOCKER_REGISTRY_AUTH_URL)" \
+		--registry-service "$(DOCKER_REGISTRY_SERVICE)" \
 		--login-url "$(DOCKER_HUB_LOGIN_URL)" \
 		--namespace-repositories-url "$(DOCKER_HUB_API_NAMESPACE_BASE_URL)" \
 		--legacy-repositories-url "$(DOCKER_HUB_LEGACY_REPOSITORY_BASE_URL)"
