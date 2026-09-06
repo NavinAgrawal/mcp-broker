@@ -19,6 +19,7 @@ from mcp_broker.daemon_helpers import (
     configured_upstream_health as _configured_upstream_health,
     merge_passive_auth_probe as _merge_passive_auth_probe,
     passive_auth_probe as _passive_auth_probe,
+    per_call_health_snapshot as _per_call_health_snapshot,
     per_session_health_snapshot as _per_session_health_snapshot,
     process_exists as _process_exists,
     _result_content_text,
@@ -429,6 +430,7 @@ class BrokerDaemon(
             return {}
         with self._stdio_upstreams_lock:
             stdio_snapshot = dict(self._stdio_upstreams)
+            per_call_snapshot = tuple(self._active_per_call_upstreams.values())
         snapshots: dict[str, dict[str, object]] = {}
         for name, upstream in sorted(self.broker_config.upstreams.items()):
             client = stdio_snapshot.get(name)
@@ -441,6 +443,9 @@ class BrokerDaemon(
                         restart_allowed=restart_upstreams is None or name in restart_upstreams,
                     ),
                 )
+            elif upstream.mode == "per_call":
+                snapshot = _per_call_health_snapshot(upstream, per_call_snapshot)
+                snapshots[name] = self._upstream_health_with_auth(name, snapshot)
             elif upstream.mode == "per_session":
                 session_clients = [
                     active_client

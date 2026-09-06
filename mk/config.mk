@@ -6,6 +6,8 @@ PYTHON            ?= $(VENV_DIR)/bin/python
 PIP               ?= $(VENV_DIR)/bin/pip
 MUTMUT            ?= $(VENV_DIR)/bin/mutmut
 PIP_UPGRADE       ?= 0
+GITLEAKS          ?= gitleaks
+GIT_HOOKS_DIR     ?= .githooks
 REQUIREMENTS      ?= $(ROOT)/requirements.txt
 
 RUNTIME_ROOT      ?= $(HOME)/mcp/mcp-broker

@@ -37,8 +37,9 @@ def changed_files(root: Path, tier: str, base: str) -> list[str]:
     else:
         committed = _git_lines(root, ["diff", "--name-only", "--diff-filter=ACMRTD", f"{base}...HEAD"])
     working = _git_lines(root, ["diff", "--name-only", "--diff-filter=ACMRTD", "HEAD"])
+    staged = _git_lines(root, ["diff", "--cached", "--name-only", "--diff-filter=ACMRTD", "HEAD"])
     untracked = _git_lines(root, ["ls-files", "--others", "--exclude-standard"])
-    return sorted(set(committed + working + untracked))
+    return sorted(set(committed + working + staged + untracked))
 
 
 def _test_files(root: Path) -> list[tuple[Path, str]]:

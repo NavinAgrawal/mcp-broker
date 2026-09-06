@@ -108,6 +108,12 @@ if [ "$dry_run" -eq 1 ]; then
   exit 0
 fi
 
+# Selection above uses the commit's index; tests must not inherit its Git state.
+git_local_names="$(git rev-parse --local-env-vars)"
+while IFS= read -r git_local_name; do
+  unset "$git_local_name"
+done <<< "$git_local_names"
+
 if [ "$tier" = "ci" ]; then
   exec "${command[@]}"
 fi

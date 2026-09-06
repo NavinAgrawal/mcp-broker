@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import os
-from typing import Mapping, Protocol, runtime_checkable
+from typing import Mapping, Protocol, Sequence, runtime_checkable
 
 from mcp_broker.broker import BrokerToolError
 from mcp_broker.config import UpstreamConfig
@@ -41,6 +41,18 @@ def configured_upstream_health(upstream: UpstreamConfig) -> dict[str, object]:
         "restarts": 0,
         "last_error": None,
     }
+
+
+def per_call_health_snapshot(
+    upstream: UpstreamConfig,
+    registered_calls: Sequence[tuple[str, StdioUpstreamClientProtocol]],
+) -> dict[str, object]:
+    count = sum(1 for owner, _client in registered_calls if owner == upstream.name)
+    snapshot = configured_upstream_health(upstream)
+    snapshot["active_call_count"] = count
+    if count:
+        snapshot["state"] = "running"
+    return snapshot
 
 
 def passive_auth_probe(

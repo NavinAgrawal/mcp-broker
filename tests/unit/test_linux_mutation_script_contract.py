@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 
 import pytest
 
@@ -125,7 +126,10 @@ def test_mutation_carveout_registry_records_daemon_class_method_limit() -> None:
     assert "`BrokerDaemon._read_request`" in registry
     assert "`BrokerDaemon._send_response`" in registry
     assert "`BrokerDaemon._reap_idle_upstreams`" in registry
-    assert "538f7b8d2e8cb81fcb88b1ce4843be1ba485498c9d5942dbf41d632e02a1e308" in registry
+    source_hash = hashlib.sha256((ROOT / "src/mcp_broker/daemon.py").read_bytes()).hexdigest()
+    daemon_rows = [line for line in registry.splitlines() if "| `src/mcp_broker/daemon.py` |" in line]
+    assert daemon_rows
+    assert all(source_hash in row for row in daemon_rows)
     assert "source or mutmut version drift invalidates this approval" in registry
 
 
