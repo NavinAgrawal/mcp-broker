@@ -1,4 +1,4 @@
-.PHONY: release-smoke package-build package-check package-install-smoke public-stable-surface-smoke public-release-surface-smoke public-release-live-verify npm-account-check npm-package-check npm-smoke npm-release-smoke docker-build docker-smoke docker-buildx _docker-release-builder-ensure docker-mcp-catalog-smoke docker-hub-public-ensure docker-publish-check docker-release-smoke mcpb-validate mcpb-pack mcpb-smoke mcpb-stdio-smoke smithery-payload-check smithery-publish directory-submission-check release-version-resolve release-version-sync release-version-check release-check _release-check-impl release _release-impl publish-version-check publish-everywhere-check _publish-everywhere-check-impl publish-everywhere _publish-everywhere-impl _publish-everywhere-preflight _publish-check-docker-smoke _publish-check-docker-buildx _publish-everywhere-required-env-check _publish-everywhere-auth-preflight _publish-everywhere-docker-hub-public _publish-everywhere-registry-fanout _publish-everywhere-live-verify-registries _publish-everywhere-github-release _publish-everywhere-live-verify-github-release _publish-everywhere-pypi _publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew
+.PHONY: release-smoke package-build package-check package-install-smoke public-stable-surface-smoke public-release-surface-smoke public-release-live-verify npm-account-check npm-package-check npm-smoke npm-release-smoke docker-build docker-smoke docker-buildx _docker-release-builder-ensure docker-mcp-catalog-smoke docker-hub-public-ensure docker-publish-check docker-release-smoke mcpb-validate mcpb-pack mcpb-smoke mcpb-stdio-smoke smithery-payload-check smithery-publish directory-submission-check release-version-resolve release-version-sync release-version-check release-check _release-check-impl release _release-impl publish-version-check publish-everywhere-check _publish-everywhere-check-impl publish-everywhere _publish-everywhere-impl _publish-everywhere-preflight _publish-check-docker-smoke _publish-check-docker-buildx _publish-everywhere-required-env-check _publish-everywhere-auth-preflight _publish-everywhere-docker-hub-public _publish-everywhere-registry-fanout _publish-everywhere-live-verify-registries _publish-everywhere-github-release _publish-everywhere-live-verify-github-release _publish-everywhere-pypi _publish-everywhere-npm _publish-everywhere-docker-auth _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew
 
 release-smoke: ## Run clean-tree public setup smoke from tracked files
 	@"$(ROOT)/scripts/release-smoke.sh"
@@ -337,6 +337,7 @@ _publish-everywhere-impl:
 	$(call timed_make,"publish-everywhere: preflight checks",_publish-everywhere-preflight)
 	$(call timed_make,"publish-everywhere: required env",_publish-everywhere-required-env-check)
 	$(call timed_make,"publish-everywhere: auth preflight",_publish-everywhere-auth-preflight)
+	$(call timed_make,"publish-everywhere: docker registry auth",_publish-everywhere-docker-auth)
 	$(call timed_make,"publish-everywhere: docker hub public repository",_publish-everywhere-docker-hub-public)
 	$(call timed_make,"publish-everywhere: pypi",_publish-everywhere-pypi)
 	$(call timed_make,"publish-everywhere: registry fanout",_publish-everywhere-registry-fanout)
@@ -388,14 +389,14 @@ _publish-everywhere-auth-preflight:
 	@command -v gh >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m gh is required before publish-everywhere starts\n" >&2; exit 2; }
 	@command -v mcp-publisher >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m mcp-publisher is required before publish-everywhere starts\n" >&2; exit 2; }
 	@cd "$(NPM_DIR)" && $(NPM) whoami --registry "$(NPM_REGISTRY_URL)" >/dev/null
-	@gh auth status --hostname github.com >/dev/null 2>&1
-	@visibility="$$(gh api "orgs/$(PUBLIC_NAMESPACE)/packages/container/$(DOCKER_IMAGE_NAME)" --jq '.visibility')" || { printf "\033[1;31m[ERROR]\033[0m GHCR package visibility check failed; token needs package read access\n" >&2; exit 2; }; \
+	@gh auth status --hostname "$(GITHUB_HOST)" >/dev/null 2>&1
+	@visibility="$$(gh api --hostname "$(GITHUB_HOST)" "orgs/$(PUBLIC_NAMESPACE)/packages/container/$(DOCKER_IMAGE_NAME)" --jq '.visibility')" || { printf "\033[1;31m[ERROR]\033[0m GHCR package visibility check failed; token needs package read access\n" >&2; exit 2; }; \
 		if [[ "$$visibility" != "public" ]]; then \
 			printf "\033[1;31m[ERROR]\033[0m GHCR package is not public: %s/%s visibility=%s\n" "$(PUBLIC_NAMESPACE)" "$(DOCKER_IMAGE_NAME)" "$$visibility" >&2; \
 			exit 2; \
 		fi
 	@HOMEBREW_EFFECTIVE_TOKEN="$${HOMEBREW_TAP_TOKEN:-}"; \
-		if [[ -z "$$HOMEBREW_EFFECTIVE_TOKEN" ]]; then HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token)"; fi; \
+		if [[ -z "$$HOMEBREW_EFFECTIVE_TOKEN" ]]; then HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token --hostname "$(GITHUB_HOST)")"; fi; \
 		export HOMEBREW_EFFECTIVE_TOKEN; \
 		tmpdir="$$(mktemp -d)"; \
 		trap 'rm -rf "$$tmpdir"' EXIT; \
@@ -410,7 +411,7 @@ _publish-everywhere-auth-preflight:
 	@tmpdir="$$(mktemp -d)"; \
 		trap 'rm -rf "$$tmpdir"' EXIT; \
 		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
-		registry_github_token="$$(gh auth token)" || { printf "\033[1;31m[ERROR]\033[0m gh auth token failed for MCP Registry preflight\n" >&2; exit 2; }; \
+		registry_github_token="$$(gh auth token --hostname "$(GITHUB_HOST)")" || { printf "\033[1;31m[ERROR]\033[0m gh auth token failed for MCP Registry preflight\n" >&2; exit 2; }; \
 		test -n "$$registry_github_token" || { printf "\033[1;31m[ERROR]\033[0m gh auth token returned empty for MCP Registry preflight\n" >&2; exit 2; }; \
 		(cd "$$tmpdir" && MCP_GITHUB_TOKEN="$$registry_github_token" mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" >/dev/null)
 	$(call log_success,"Publish-everywhere auth preflight passed")
@@ -535,7 +536,21 @@ _publish-everywhere-npm:
 	fi
 	$(call log_success,"NPM publish target completed: $(NPM_PACKAGE_NAME)")
 
+_publish-everywhere-docker-auth:
+	@test -n "$${DOCKERHUB_USERNAME:-}" || { printf "\033[1;31m[ERROR]\033[0m DOCKERHUB_USERNAME is required for Docker registry login\n" >&2; exit 2; }
+	@test -n "$${DOCKERHUB_TOKEN:-}" || { printf "\033[1;31m[ERROR]\033[0m DOCKERHUB_TOKEN is required for Docker registry login\n" >&2; exit 2; }
+	@printf '%s' "$${DOCKERHUB_TOKEN}" | docker login "$(DOCKER_REGISTRY_HOST)" \
+		--username "$${DOCKERHUB_USERNAME}" --password-stdin >/dev/null
+	@ghcr_token="$$(gh auth token --hostname "$(GITHUB_HOST)")" || { printf "\033[1;31m[ERROR]\033[0m gh auth token failed for GHCR login\n" >&2; exit 2; }; \
+		ghcr_username="$$(gh api --hostname "$(GITHUB_HOST)" user --jq .login)" || { printf "\033[1;31m[ERROR]\033[0m GitHub username lookup failed for GHCR login\n" >&2; exit 2; }; \
+		test -n "$$ghcr_token" || { printf "\033[1;31m[ERROR]\033[0m gh auth token returned empty for GHCR login\n" >&2; exit 2; }; \
+		test -n "$$ghcr_username" || { printf "\033[1;31m[ERROR]\033[0m GitHub username lookup returned empty for GHCR login\n" >&2; exit 2; }; \
+		printf '%s' "$$ghcr_token" | docker login "$(GHCR_REGISTRY_HOST)" \
+			--username "$$ghcr_username" --password-stdin >/dev/null
+	$(call log_success,"Docker registry authentication passed")
+
 _publish-everywhere-docker:
+	@$(MAKE) --no-print-directory _publish-everywhere-docker-auth
 	@$(MAKE) --no-print-directory _docker-release-builder-ensure
 	@TAG_ARGS=(); \
 	for image in $(DOCKER_PUBLISH_IMAGES); do TAG_ARGS+=("-t" "$$image"); done; \
@@ -571,7 +586,7 @@ _publish-everywhere-mcp-registry:
 		trap 'rm -rf "$$tmpdir"' EXIT; \
 		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
 		if [[ "$(PUBLISH_EXECUTION_MODE)" = "local" ]]; then \
-			registry_github_token="$$(gh auth token)" || { printf "\033[1;31m[ERROR]\033[0m gh auth token failed for MCP Registry publish\n" >&2; exit 2; }; \
+			registry_github_token="$$(gh auth token --hostname "$(GITHUB_HOST)")" || { printf "\033[1;31m[ERROR]\033[0m gh auth token failed for MCP Registry publish\n" >&2; exit 2; }; \
 			test -n "$$registry_github_token" || { printf "\033[1;31m[ERROR]\033[0m gh auth token returned empty for MCP Registry publish\n" >&2; exit 2; }; \
 			(cd "$$tmpdir" && MCP_GITHUB_TOKEN="$$registry_github_token" mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" && MCP_GITHUB_TOKEN="$$registry_github_token" mcp-publisher publish); \
 		else \
@@ -585,7 +600,7 @@ _publish-everywhere-mcp-registry:
 
 _publish-everywhere-homebrew:
 	@HOMEBREW_EFFECTIVE_TOKEN="$${HOMEBREW_TAP_TOKEN:-}"; \
-		if [[ -z "$$HOMEBREW_EFFECTIVE_TOKEN" ]]; then HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token)"; fi; \
+		if [[ -z "$$HOMEBREW_EFFECTIVE_TOKEN" ]]; then HOMEBREW_EFFECTIVE_TOKEN="$$(gh auth token --hostname "$(GITHUB_HOST)")"; fi; \
 		export HOMEBREW_EFFECTIVE_TOKEN; \
 		tmpdir="$$(mktemp -d)"; \
 		trap 'rm -rf "$$tmpdir"' EXIT; \

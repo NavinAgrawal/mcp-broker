@@ -136,6 +136,11 @@ Registry use the authenticated local `gh` session, which must also be able to
 read GitHub Packages metadata so the command can fail closed if the GHCR package
 is not public. Local MCP Registry publication passes the `gh` token through the
 publisher environment, so it does not open an interactive device-login flow.
+Before the multi-platform image build, local publication signs in to the
+configured Docker Hub and GHCR hosts with `docker login --password-stdin`.
+Docker Hub uses `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`; GHCR uses the
+authenticated local `gh` account and token. Neither token is placed in command
+arguments.
 `DOCKERHUB_USERNAME`
 and `DOCKERHUB_TOKEN` are also used by `make docker-hub-public-ensure` so the
 Docker Hub repository is public before the image push and before PyPI can be
