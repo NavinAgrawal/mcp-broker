@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import json
@@ -13,6 +15,7 @@ import sys
 import time
 from typing import Any
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -49,6 +52,158 @@ DockerHubRequester = Callable[
     [str, str],
     object,
 ]
+
+RegistryTokenRequester = Callable[[str, str, str, str, str], object]
+
+
+def verify_docker_registry_push_access(
+    config: DockerHubConfig,
+    *,
+    registry_auth_url: str,
+    registry_service: str,
+    request: RegistryTokenRequester | None = None,
+    now: float | None = None,
+) -> None:
+    scope = f"repository:{config.namespace}/{config.repository}:pull,push"
+    requester = request or _request_registry_token
+    response = _expect_dict(
+        requester(
+            registry_auth_url,
+            config.username,
+            config.token,
+            registry_service,
+            scope,
+        ),
+        "Docker registry authorization",
+    )
+    token = response.get("token") or response.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise DockerHubPublicError(
+            "Docker registry authorization did not return a registry token"
+        )
+    claims = _registry_token_claims(token)
+    _verify_registry_token_claims(
+        claims,
+        registry_service=registry_service,
+        now=time.time() if now is None else now,
+    )
+    repository = f"{config.namespace}/{config.repository}"
+    for grant in claims["access"]:
+        if grant.get("type") != "repository" or grant.get("name") != repository:
+            continue
+        actions = grant.get("actions")
+        if isinstance(actions, list) and "push" in actions:
+            return
+    raise DockerHubPublicError(
+        f"Docker Hub credential lacks push access to {repository}"
+    )
+
+
+def _registry_token_claims(token: str) -> dict[str, Any]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise DockerHubPublicError("Docker Hub returned a malformed registry token")
+    payload_segment = parts[1]
+    padding = "=" * (-len(payload_segment) % 4)
+    try:
+        payload = json.loads(
+            base64.b64decode(
+                payload_segment + padding,
+                altchars=b"-_",
+                validate=True,
+            ).decode("utf-8")
+        )
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error) as exc:
+        raise DockerHubPublicError(
+            "Docker Hub returned a malformed registry token"
+        ) from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("access"), list):
+        raise DockerHubPublicError("Docker Hub returned a malformed registry token")
+    payload["access"] = [grant for grant in payload["access"] if isinstance(grant, dict)]
+    return payload
+
+
+def _verify_registry_token_claims(
+    claims: Mapping[str, Any],
+    *,
+    registry_service: str,
+    now: float,
+) -> None:
+    audience = claims.get("aud")
+    audiences = {audience} if isinstance(audience, str) else set()
+    if isinstance(audience, list) and all(isinstance(value, str) for value in audience):
+        audiences.update(audience)
+    if registry_service not in audiences:
+        raise DockerHubPublicError("Docker Hub registry token audience mismatch")
+    not_before = claims.get("nbf")
+    expires = claims.get("exp")
+    if (
+        isinstance(not_before, bool)
+        or not isinstance(not_before, (int, float))
+        or isinstance(expires, bool)
+        or not isinstance(expires, (int, float))
+    ):
+        raise DockerHubPublicError("Docker Hub registry token validity claims are malformed")
+    if not_before > now:
+        raise DockerHubPublicError("Docker Hub registry token is not valid yet")
+    if expires <= now:
+        raise DockerHubPublicError("Docker Hub registry token is expired")
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
+
+def _request_registry_token(
+    url: str,
+    username: str,
+    token: str,
+    service: str,
+    scope: str,
+) -> object:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise DockerHubPublicError("Docker registry authorization URL must use HTTPS")
+    query_items = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    query_items.extend((("service", service), ("scope", scope)))
+    request_url = urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query_items), "")
+    )
+    authorization = base64.b64encode(f"{username}:{token}".encode()).decode()
+    request = urllib.request.Request(
+        request_url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Basic {authorization}",
+        },
+        method="GET",
+    )
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    try:
+        with opener.open(request, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise DockerHubPublicError(
+            "Docker registry authorization failed",
+            status=exc.code,
+        ) from exc
+    except OSError as exc:
+        raise DockerHubPublicError("Docker registry authorization failed") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise DockerHubPublicError(
+            "Docker registry authorization response was not JSON"
+        ) from exc
 
 
 def ensure_docker_hub_public(
@@ -282,6 +437,8 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--registry", required=True)
+    parser.add_argument("--registry-auth-url", required=True)
+    parser.add_argument("--registry-service", required=True)
     parser.add_argument("--login-url", required=True)
     parser.add_argument("--namespace-repositories-url", required=True)
     parser.add_argument("--legacy-repositories-url", required=True)
@@ -290,22 +447,36 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+    registry_request: RegistryTokenRequester | None = None,
+    repository_request: DockerHubRequester | None = None,
+) -> int:
     args = _parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
-        token = dockerhub_token_from_env(os.environ)
+        token = dockerhub_token_from_env(os.environ if environ is None else environ)
+        config = DockerHubConfig(
+            username=args.username,
+            token=token,
+            namespace=args.namespace,
+            repository=args.repository,
+            registry=args.registry,
+            login_url=args.login_url,
+            namespace_repositories_url=args.namespace_repositories_url,
+            legacy_repositories_url=args.legacy_repositories_url,
+        )
+        verify_docker_registry_push_access(
+            config,
+            registry_auth_url=args.registry_auth_url,
+            registry_service=args.registry_service,
+            request=registry_request,
+        )
         result = ensure_docker_hub_public(
-            DockerHubConfig(
-                username=args.username,
-                token=token,
-                namespace=args.namespace,
-                repository=args.repository,
-                registry=args.registry,
-                login_url=args.login_url,
-                namespace_repositories_url=args.namespace_repositories_url,
-                legacy_repositories_url=args.legacy_repositories_url,
-            ),
+            config,
+            request=repository_request,
             verify_attempts=args.verify_attempts,
             verify_retry_delay_seconds=args.verify_retry_delay_seconds,
         )
