@@ -1,4 +1,4 @@
-.PHONY: release-smoke package-build package-check package-install-smoke public-stable-surface-smoke public-release-surface-smoke public-release-live-verify npm-account-check npm-package-check npm-smoke npm-release-smoke docker-build docker-smoke docker-buildx docker-mcp-catalog-smoke docker-hub-public-ensure docker-publish-check docker-release-smoke mcpb-validate mcpb-pack mcpb-smoke mcpb-stdio-smoke smithery-payload-check smithery-publish directory-submission-check release-version-resolve release-version-sync release-version-check release-check _release-check-impl release _release-impl publish-version-check publish-everywhere-check _publish-everywhere-check-impl publish-everywhere _publish-everywhere-impl _publish-everywhere-preflight _publish-check-docker-smoke _publish-check-docker-buildx _publish-everywhere-required-env-check _publish-everywhere-auth-preflight _publish-everywhere-docker-hub-public _publish-everywhere-registry-fanout _publish-everywhere-live-verify-registries _publish-everywhere-github-release _publish-everywhere-live-verify-github-release _publish-everywhere-pypi _publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew
+.PHONY: release-smoke package-build package-check package-install-smoke public-stable-surface-smoke public-release-surface-smoke public-release-live-verify npm-account-check npm-package-check npm-smoke npm-release-smoke docker-build docker-smoke docker-buildx _docker-release-builder-ensure docker-mcp-catalog-smoke docker-hub-public-ensure docker-publish-check docker-release-smoke mcpb-validate mcpb-pack mcpb-smoke mcpb-stdio-smoke smithery-payload-check smithery-publish directory-submission-check release-version-resolve release-version-sync release-version-check release-check _release-check-impl release _release-impl publish-version-check publish-everywhere-check _publish-everywhere-check-impl publish-everywhere _publish-everywhere-impl _publish-everywhere-preflight _publish-check-docker-smoke _publish-check-docker-buildx _publish-everywhere-required-env-check _publish-everywhere-auth-preflight _publish-everywhere-docker-hub-public _publish-everywhere-registry-fanout _publish-everywhere-live-verify-registries _publish-everywhere-github-release _publish-everywhere-live-verify-github-release _publish-everywhere-pypi _publish-everywhere-npm _publish-everywhere-docker _publish-everywhere-mcp-registry _publish-everywhere-homebrew
 
 release-smoke: ## Run clean-tree public setup smoke from tracked files
 	@"$(ROOT)/scripts/release-smoke.sh"
@@ -114,6 +114,7 @@ docker-smoke: docker-build ## Smoke test the Docker stdio entrypoint
 
 docker-buildx: ## Build multi-arch Docker image with SBOM/provenance; set DOCKER_PUSH=1 to push
 	$(call log_step,"Building multi-arch Docker image $(DOCKER_IMAGE)")
+	@$(MAKE) --no-print-directory _docker-release-builder-ensure
 	@if [[ "$(DOCKER_PUSH)" == "1" ]]; then \
 		OUTPUT_ARG="--push"; \
 		SBOM_ARG="$(DOCKER_SBOM)"; \
@@ -128,6 +129,7 @@ docker-buildx: ## Build multi-arch Docker image with SBOM/provenance; set DOCKER
 		fi; \
 	fi; \
 	docker buildx build \
+		--builder "$(DOCKER_RELEASE_BUILDER)" \
 		--platform "$(DOCKER_PLATFORMS)" \
 		--build-arg VERSION="$(PACKAGE_VERSION)" \
 		--build-arg VCS_REF="$$(git -C "$(ROOT)" rev-parse --short HEAD 2>/dev/null || printf unknown)" \
@@ -139,6 +141,22 @@ docker-buildx: ## Build multi-arch Docker image with SBOM/provenance; set DOCKER
 		$$OUTPUT_ARG \
 		"$(ROOT)"
 	$(call log_success,"Docker buildx completed: $(DOCKER_IMAGE)")
+
+_docker-release-builder-ensure:
+	@builder_info="$$(docker buildx inspect "$(DOCKER_RELEASE_BUILDER)" 2>/dev/null)" || { \
+		docker buildx create \
+			--name "$(DOCKER_RELEASE_BUILDER)" \
+			--driver "$(DOCKER_RELEASE_BUILDER_DRIVER)" \
+			--bootstrap; \
+		builder_info="$$(docker buildx inspect "$(DOCKER_RELEASE_BUILDER)")"; \
+	}; \
+	builder_driver="$$(printf '%s\n' "$$builder_info" | awk -F ': *' '$$1 == "Driver" { print $$2; exit }')"; \
+	if [[ "$$builder_driver" != "$(DOCKER_RELEASE_BUILDER_DRIVER)" ]]; then \
+		printf "\033[1;31m[ERROR]\033[0m builder driver mismatch: %s uses %s, required %s\n" \
+			"$(DOCKER_RELEASE_BUILDER)" "$${builder_driver:-unknown}" "$(DOCKER_RELEASE_BUILDER_DRIVER)" >&2; \
+		exit 2; \
+	fi
+	@docker buildx inspect --bootstrap "$(DOCKER_RELEASE_BUILDER)" >/dev/null
 
 docker-mcp-catalog-smoke: ## Verify Docker MCP Toolkit can create a custom catalog from file metadata
 	@test -f "$(DOCKER_MCP_CATALOG_FILE)" || { printf "\033[1;31m[ERROR]\033[0m Missing Docker MCP catalog file: %s\n" "$(DOCKER_MCP_CATALOG_FILE)" >&2; exit 2; }
@@ -518,9 +536,11 @@ _publish-everywhere-npm:
 	$(call log_success,"NPM publish target completed: $(NPM_PACKAGE_NAME)")
 
 _publish-everywhere-docker:
+	@$(MAKE) --no-print-directory _docker-release-builder-ensure
 	@TAG_ARGS=(); \
 	for image in $(DOCKER_PUBLISH_IMAGES); do TAG_ARGS+=("-t" "$$image"); done; \
 	docker buildx build \
+		--builder "$(DOCKER_RELEASE_BUILDER)" \
 		--platform "$(DOCKER_PLATFORMS)" \
 		--build-arg VERSION="$(PACKAGE_VERSION)" \
 		--build-arg VCS_REF="$$(git -C "$(ROOT)" rev-parse --short HEAD 2>/dev/null || printf unknown)" \
@@ -548,8 +568,15 @@ _publish-everywhere-mcp-registry:
 	elif [ "$$action" = "publish" ]; then \
 		command -v mcp-publisher >/dev/null 2>&1 || { printf "\033[1;31m[ERROR]\033[0m mcp-publisher is required for publish-everywhere\n" >&2; exit 2; }; \
 		tmpdir="$$(mktemp -d)"; \
+		trap 'rm -rf "$$tmpdir"' EXIT; \
 		cp "$(ROOT)/registry/server.json" "$$tmpdir/server.json"; \
-		(cd "$$tmpdir" && mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" && mcp-publisher publish); \
+		if [[ "$(PUBLISH_EXECUTION_MODE)" = "local" ]]; then \
+			registry_github_token="$$(gh auth token)" || { printf "\033[1;31m[ERROR]\033[0m gh auth token failed for MCP Registry publish\n" >&2; exit 2; }; \
+			test -n "$$registry_github_token" || { printf "\033[1;31m[ERROR]\033[0m gh auth token returned empty for MCP Registry publish\n" >&2; exit 2; }; \
+			(cd "$$tmpdir" && MCP_GITHUB_TOKEN="$$registry_github_token" mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" && MCP_GITHUB_TOKEN="$$registry_github_token" mcp-publisher publish); \
+		else \
+			(cd "$$tmpdir" && mcp-publisher login "$(MCP_REGISTRY_LOGIN_METHOD)" && mcp-publisher publish); \
+		fi; \
 	else \
 		printf "\033[1;31m[ERROR]\033[0m MCP Registry idempotency check returned invalid action: %s\n" "$$action" >&2; \
 		exit 2; \

@@ -134,7 +134,9 @@ registry write. For local publication, `DOCKERHUB_USERNAME`,
 starts. NPM uses the authenticated local npm configuration. Homebrew and MCP
 Registry use the authenticated local `gh` session, which must also be able to
 read GitHub Packages metadata so the command can fail closed if the GHCR package
-is not public. `DOCKERHUB_USERNAME`
+is not public. Local MCP Registry publication passes the `gh` token through the
+publisher environment, so it does not open an interactive device-login flow.
+`DOCKERHUB_USERNAME`
 and `DOCKERHUB_TOKEN` are also used by `make docker-hub-public-ensure` so the
 Docker Hub repository is public before the image push and before PyPI can be
 written.
@@ -272,6 +274,10 @@ make docker-buildx \
   DOCKER_PLATFORMS=linux/amd64,linux/arm64 \
   DOCKER_PUSH=1
 ```
+
+Local publication creates and selects the configured `docker-container`
+release builder when it is absent. Docker's default driver with the classic
+image store cannot emit the required attestations.
 
 Docker Hub is the primary image for Docker MCP Catalog work:
 
