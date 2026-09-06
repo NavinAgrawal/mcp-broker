@@ -359,6 +359,11 @@ Supported concepts:
 - `per_call` mode starts a fresh stdio process for each tool call or tool-list operation, then stops that process before returning.
 - `disabled` mode keeps compatibility records without exposing the upstream.
 
+Status reports `active_call_count` for in-flight `per_call` operations, including
+tool discovery. It returns to zero after success, failure, or timeout cleanup.
+This count is separate from `session_count` and is not a count of saved threads.
+Reading status does not start an upstream; profile-hidden upstreams stay hidden.
+
 Protected surfaces such as OAuth, browser state, filesystem roots, and databases require explicit config and validation. Public examples stay disabled or placeholder-based.
 
 See [docs/security-review.md](docs/security-review.md) and [docs/upstream-compatibility-matrix.md](docs/upstream-compatibility-matrix.md).
@@ -527,6 +532,14 @@ See [docs/release-checklist.md](docs/release-checklist.md).
 ## Public commands
 
 These targets use this repo plus declared Python and Node prerequisites:
+
+For source contributions, install `gitleaks` on PATH and run `make hooks-install`
+in each checkout. The tracked pre-commit hook requires a redacted staged secret
+scan, then runs commit-tier affected tests through Make. Missing scanner tools,
+empty staged scope, and scan or test failures block the commit. `GITLEAKS` and
+`PYTHON` select the scanner and maintainer interpreter. Installation uses Git's
+worktree-specific config and refuses unknown existing hooks or common
+`core.worktree`/bare settings that need migration. No hosted workflow is started.
 
 ```bash
 make setup

@@ -2,6 +2,18 @@
   "version": 1,
   "map": [
     {
+      "changed": "docs/mutation-carveouts.md",
+      "runTests": ["tests/unit/test_linux_mutation_script_contract.py", "tests/unit/test_mutation_scope_contract.py"]
+    },
+    {
+      "changed": ".githooks/**",
+      "runTests": ["tests/journey/test_git_hook_contract.py"]
+    },
+    {
+      "changed": "scripts/install_git_hooks.py",
+      "runTests": ["tests/journey/test_git_hook_contract.py"]
+    },
+    {
       "changed": ".cits/**",
       "runTests": ["tests/unit/test_affected_test_selection_contract.py", "tests/e2e/test_make_entrypoints.py"]
     },

@@ -447,6 +447,7 @@ def test_status_reports_visible_disabled_and_allowed_mutating_upstreams(tmp_path
         "pid": 456,
         "restarts": 2,
         "session_count": 3,
+        "active_call_count": 0,
         "state": "running",
         "transport": "stdio",
     }

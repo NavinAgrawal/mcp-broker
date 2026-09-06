@@ -192,6 +192,7 @@ class BrokerCatalogFacade:
                 "pid": snapshot.get("pid"),
                 "restarts": snapshot.get("restarts"),
                 "session_count": _snapshot_int(snapshot, "session_count", "sessions"),
+                "active_call_count": _snapshot_int(snapshot, "active_call_count"),
                 "state": snapshot.get(
                     "state",
                     "configured" if upstream.enabled and upstream.mode != "disabled" else "disabled",

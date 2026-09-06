@@ -14,6 +14,40 @@ SELECTOR = ROOT / "scripts" / "select_affected_tests.py"
 pytestmark = pytest.mark.unit
 
 
+def test_mutation_registry_change_selects_source_bound_contracts() -> None:
+    result = _run_selector(ROOT, ["docs/mutation-carveouts.md"])
+    assert result.returncode == 0, result.stderr
+    assert "tests/unit/test_linux_mutation_script_contract.py" in result.stdout.splitlines()
+    assert "tests/unit/test_mutation_scope_contract.py" in result.stdout.splitlines()
+
+
+def test_commit_selection_preserves_alternate_staged_index(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def git(*args: str, env: dict[str, str] | None = None, content: str | None = None) -> str:
+        result = subprocess.run(["git", *args], cwd=tmp_path, env=env, input=content,
+                                text=True, capture_output=True, check=True)
+        return result.stdout.strip()
+
+    git("init", "-b", "main")
+    (tmp_path / "src/mcp_broker").mkdir(parents=True)
+    (tmp_path / "tests/unit").mkdir(parents=True)
+    for name in ("alpha", "beta"):
+        (tmp_path / f"src/mcp_broker/{name}.py").write_text("VALUE = 1\n")
+        (tmp_path / f"tests/unit/test_{name}.py").write_text(f"from mcp_broker.{name} import VALUE\n")
+    git("add", "src", "tests")
+    git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "Fixture")
+    alternate = tmp_path / ".git/alternate-index"
+    alternate_env = {**os.environ, "GIT_INDEX_FILE": str(alternate)}
+    git("read-tree", "HEAD", env=alternate_env)
+    blob = git("hash-object", "-w", "--stdin", content="VALUE = 2\n")
+    git("update-index", "--cacheinfo", f"100644,{blob},src/mcp_broker/alpha.py", env=alternate_env)
+    git("update-index", "--cacheinfo", f"100644,{blob},src/mcp_broker/beta.py")
+    monkeypatch.setenv("GIT_INDEX_FILE", str(alternate))
+    result = _run_selector(tmp_path, None, tier="commit")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["tests/unit/test_alpha.py"]
+    assert git("diff", "--cached", "--name-only", env={key: value for key, value in os.environ.items() if key != "GIT_INDEX_FILE"}) == "src/mcp_broker/beta.py"
+
+
 def _run_selector(
     repo: Path,
     changed: list[str] | None,
