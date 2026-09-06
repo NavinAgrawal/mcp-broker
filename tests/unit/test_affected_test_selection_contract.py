@@ -63,6 +63,31 @@ def test_selector_maps_source_module_to_named_and_importing_tests(tmp_path: Path
     ]
 
 
+def test_selector_maps_transitive_source_consumers_to_their_tests(tmp_path: Path) -> None:
+    (tmp_path / "src/mcp_broker").mkdir(parents=True)
+    (tmp_path / "tests/unit").mkdir(parents=True)
+    (tmp_path / "src/mcp_broker/runtime_launcher.py").write_text(
+        "VALUE = 1\n", encoding="utf-8"
+    )
+    (tmp_path / "src/mcp_broker/daemon.py").write_text(
+        "from mcp_broker.runtime_launcher import VALUE\n", encoding="utf-8"
+    )
+    (tmp_path / "tests/unit/test_runtime_launcher.py").write_text(
+        "from mcp_broker.runtime_launcher import VALUE\n", encoding="utf-8"
+    )
+    (tmp_path / "tests/unit/test_daemon.py").write_text(
+        "from mcp_broker.daemon import VALUE\n", encoding="utf-8"
+    )
+
+    result = _run_selector(tmp_path, ["src/mcp_broker/runtime_launcher.py"])
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        "tests/unit/test_daemon.py",
+        "tests/unit/test_runtime_launcher.py",
+    ]
+
+
 def test_selector_applies_declared_non_code_mapping(tmp_path: Path) -> None:
     (tmp_path / "docs").mkdir()
     (tmp_path / "tests/journey").mkdir(parents=True)
@@ -87,6 +112,15 @@ def test_selector_applies_declared_non_code_mapping(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert result.stdout.splitlines() == ["tests/journey/test_release.py"]
+
+
+def test_selector_maps_root_docs_to_release_coordinate_contracts() -> None:
+    result = _run_selector(ROOT, ["TODO.md"])
+
+    assert result.returncode == 0
+    selected = result.stdout.splitlines()
+    assert "tests/journey/test_distribution_contract_part01.py" in selected
+    assert "tests/journey/test_distribution_contract_part02.py" in selected
 
 
 def test_selector_fails_when_changed_file_has_no_test_mapping(tmp_path: Path) -> None:

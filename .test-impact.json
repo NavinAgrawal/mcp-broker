@@ -35,7 +35,7 @@
     },
     {
       "changed": "*.md",
-      "runTests": ["tests/journey/test_inventory_docs_contract.py", "tests/journey/test_public_adoption_contract.py"]
+      "runTests": ["tests/journey/test_distribution_contract_part*.py", "tests/journey/test_inventory_docs_contract.py", "tests/journey/test_public_adoption_contract.py"]
     },
     {
       "changed": "config/**",

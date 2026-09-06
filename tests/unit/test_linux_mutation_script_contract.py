@@ -149,3 +149,24 @@ def test_incremental_and_release_mutation_use_affected_file_selectors() -> None:
     assert "--all" not in incremental_block
     assert "--all" not in release_block
     assert '--diff-base "$(MUTATION_DIFF_BASE)" --format make' in release_block
+    for block in (incremental_block, release_block):
+        assert "refusing unscoped mutation" in block
+        assert '"$(MUTATION_PATH_SELECTOR)"' in block
+        assert '"$(MUTATION_TEST_SELECTOR)"' in block
+        assert '--tier "$(MUTATION_TEST_TIER)"' in block
+        assert 'MUTATION_TESTS_TO_RUN="$$tests"' in block
+    config = (ROOT / "mk" / "config.mk").read_text(encoding="utf-8")
+    assert "MUTATION_PATH_SELECTOR ?=" in config
+    assert "MUTATION_TEST_SELECTOR ?=" in config
+
+
+@pytest.mark.private_contract
+def test_maintainer_release_mutation_uses_scoped_release_target() -> None:
+    maintainer_path = ROOT / "local.mk"
+    if not maintainer_path.exists():
+        pytest.skip("local.mk is private maintainer wiring")
+    maintainer = maintainer_path.read_text(encoding="utf-8")
+    maintainer_block = maintainer.split(
+        "_maintainer-release-gate-mutation:", maxsplit=1
+    )[1]
+    assert "_release-gate-mutation-run" in maintainer_block
